@@ -149,7 +149,7 @@ function caw_force_single_product_template( $template ) {
     return $template;
 }
 
-// Load the TrustPilot widget bootstrap only on single product pages.
+// Load the official TrustPilot TrustBox bootstrap on single product pages.
 add_action( 'wp_enqueue_scripts', 'caw_product_assets' );
 function caw_product_assets() {
     if ( is_singular( 'download' ) ) {
@@ -163,23 +163,23 @@ function caw_product_assets() {
     }
 }
 
-/* ---- TrustPilot config (see reference: businessunit-id etc.) ------------- */
-function caw_trustpilot_widget( $template_id = '5419b6a8b0d04a076446a9ad', $height = '24px' ) {
+/* ---- Official TrustPilot TrustBox (Review Collector) --------------------
+   Exact embed generated from the TrustPilot Business panel (token e0768b23…). */
+function caw_trustpilot_widget() {
     ?>
+    <!-- TrustBox widget - Review Collector -->
     <div class="trustpilot-widget" data-locale="en-US"
-         data-template-id="<?php echo esc_attr( $template_id ); ?>"
+         data-template-id="56278e9abfbbba0bdcd568bc"
          data-businessunit-id="64ff3c8ffe3677ea98269255"
-         data-style-height="<?php echo esc_attr( $height ); ?>" data-style-width="100%"
-         data-theme="light"
-         data-token="d5f2ff76-24e8-4461-84a5-2c900ea672f0">
+         data-style-height="52px" data-style-width="100%"
+         data-token="e0768b23-39b9-4196-b8dc-b633497d7ee4">
         <a href="https://www.trustpilot.com/review/cryptoawaz.com" target="_blank" rel="noopener">Trustpilot</a>
     </div>
+    <!-- End TrustBox widget -->
     <?php
 }
 
-/* ---- Keep the TrustPilot widget readable in both day/night modes ---------
-   The widget's text colour is set by data-theme; sync it with the night-mode
-   switch and re-render so the real rating/score stays visible. */
+/* ---- Keep the TrustBox readable in night mode --------------------------- */
 add_action( 'wp_footer', 'caw_trustpilot_theme_sync' );
 function caw_trustpilot_theme_sync() {
     if ( ! is_singular( 'download' ) ) {
@@ -203,7 +203,6 @@ function caw_trustpilot_theme_sync() {
         }
         if (document.readyState === 'complete') { ready(); }
         else { window.addEventListener('load', ready); }
-        // Re-apply when the user toggles night mode (body class changes).
         new MutationObserver(function (muts) {
             for (var i = 0; i < muts.length; i++) {
                 if (muts[i].attributeName === 'class') { applyTP(); break; }
