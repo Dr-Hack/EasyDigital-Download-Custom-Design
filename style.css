@@ -592,7 +592,15 @@ body.sp-night-mode-on .caw-product-main { background: #161b2c !important; }
 
 /* above the fold */
 .caw-fold { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; padding: 30px 0 10px; }
-.caw-gallery img, .caw-feat-img { width: 100%; height: auto; border-radius: 16px; display: block; }
+/* Prevent CSS-grid/flex blowout: grid items default to min-width:auto, which lets a
+   wide gallery image (or a mis-measured Swiper slide) expand the column and break the
+   page. min-width:0 + overflow keeps the image locked inside its box. */
+.caw-fold > * { min-width: 0; }
+.caw-gallery { min-width: 0; max-width: 100%; overflow: hidden; }
+.caw-gallery img, .caw-feat-img { max-width: 100%; width: 100%; height: auto; border-radius: 16px; display: block; }
+.caw-gallery .swiper-container,
+.caw-gallery .mayosis-main-product-slide-box-mcd { width: 100%; max-width: 100%; overflow: hidden; }
+.caw-gallery .swiper-slide img { width: 100%; height: auto; display: block; }
 /* Framed image container to match the mockup (border + card bg + radius) */
 .caw-gallery .caw-feat-img,
 .caw-gallery .mayosis-main-product-slide-box-mcd {
