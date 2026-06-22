@@ -74,7 +74,10 @@ while ( have_posts() ) :
 
                 <h1 class="caw-title"><?php the_title(); ?></h1>
 
-                <?php echo caw_review_stars_html( $id ); // phpcs:ignore ?>
+                <div class="caw-meta-row">
+                    <?php echo caw_review_stars_html( $id ); // phpcs:ignore ?>
+                    <?php echo caw_sales_badge_html( $id ); // phpcs:ignore ?>
+                </div>
 
                 <?php if ( ! empty( $model['variable'] ) ) : ?>
 

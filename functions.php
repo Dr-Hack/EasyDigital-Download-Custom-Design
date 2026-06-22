@@ -247,6 +247,19 @@ function caw_review_stars_html( $id ) {
     return ob_get_clean();
 }
 
+/* ---- Sales-count badge (social proof near the title) -------------------- */
+function caw_sales_badge_html( $id ) {
+    if ( ! function_exists( 'edd_get_download_sales_stats' ) ) {
+        return '';
+    }
+    $sales = (int) edd_get_download_sales_stats( $id );
+    if ( $sales <= 0 ) {
+        return '';
+    }
+    return '<span class="caw-sales-badge"><i class="fa fa-fire" aria-hidden="true"></i> '
+        . esc_html( number_format( $sales ) ) . ' ' . esc_html__( 'sold', 'mayosis' ) . '</span>';
+}
+
 /* ---- Detect whether a list of axis values are durations ----------------- */
 function caw_is_duration_list( $vals ) {
     if ( empty( $vals ) ) {

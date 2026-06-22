@@ -616,10 +616,19 @@ body.sp-night-mode-on .caw-product-main { background: #161b2c !important; }
     border: 1px solid var(--caw-line); padding: 4px 10px; border-radius: 999px;
 }
 .caw-title { font-size: 26px; line-height: 1.3; margin: 0 0 12px; color: var(--caw-txt); }
-.caw-rating { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: var(--caw-muted); margin-bottom: 20px; }
+.caw-meta-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+.caw-rating { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: var(--caw-muted); }
 .caw-rating b { color: var(--caw-txt); }
 .caw-rating .caw-stars { color: #f5b301; letter-spacing: 1px; }
 .caw-rating.caw-norating .caw-stars { color: var(--caw-muted); }
+.caw-sales-badge {
+    display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+    font-size: 13px; font-weight: 600; color: #d97706;
+    background: rgba(245, 158, 11, 0.10); border: 1px solid rgba(245, 158, 11, 0.30);
+    padding: 5px 12px; border-radius: 999px;
+}
+.caw-sales-badge i { font-size: 12px; }
+body.sp-night-mode-on .caw-sales-badge { color: #fbbf24; background: rgba(245, 158, 11, 0.12); border-color: rgba(245, 158, 11, 0.30); }
 
 /* selectors */
 .caw-selblock { margin-bottom: 18px; }
