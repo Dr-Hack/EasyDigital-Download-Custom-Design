@@ -1117,6 +1117,8 @@ body.sp-night-mode-on .cawhome .ch-hero-search{box-shadow:0 12px 40px rgba(0,0,0
 /* --- product cards: real <img> (defeats theme bg-image lazyloader), div card, linked title --- */
 .cawhome .ch-prod-imglink{display:block;line-height:0}
 .cawhome .ch-prod-img{overflow:hidden}
-.cawhome .ch-prod-img img{width:100%!important;height:100%!important;object-fit:cover!important;display:block;aspect-ratio:auto!important;max-width:none!important}
+.cawhome .ch-prod-img > img{width:100%!important;height:100%!important;object-fit:cover!important;display:block;aspect-ratio:auto!important;max-width:none!important}
+/* keep WordPress emoji <img> (e.g. the fire in "N sold") tiny — never blown up by the card-image rule */
+.cawhome img.emoji{width:1em!important;height:1em!important;display:inline!important;object-fit:initial!important;aspect-ratio:auto!important;margin:0 .05em 0 .1em!important;vertical-align:-0.1em!important;box-shadow:none!important}
 .cawhome .ch-prod-body h3 a{color:var(--ch-txt);text-decoration:none}
 .cawhome .ch-prod:hover .ch-prod-body h3 a{color:var(--ch-acc-l)}
