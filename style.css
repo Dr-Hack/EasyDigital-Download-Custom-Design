@@ -1113,3 +1113,10 @@ body.sp-night-mode-on .cawhome .ch-hero-search{box-shadow:0 12px 40px rgba(0,0,0
 .cawhome .ch-news-form .mailpoet_message,
 .cawhome .ch-news-form .mailpoet_validate_success{color:var(--ch-muted);font-size:14px;margin-top:8px}
 .cawhome .ch-news-form .mailpoet_validate_error{color:#ef4444;font-size:14px;margin-top:8px}
+
+/* --- product cards: real <img> (defeats theme bg-image lazyloader), div card, linked title --- */
+.cawhome .ch-prod-imglink{display:block;line-height:0}
+.cawhome .ch-prod-img{overflow:hidden}
+.cawhome .ch-prod-img img{width:100%!important;height:100%!important;object-fit:cover!important;display:block;aspect-ratio:auto!important;max-width:none!important}
+.cawhome .ch-prod-body h3 a{color:var(--ch-txt);text-decoration:none}
+.cawhome .ch-prod:hover .ch-prod-body h3 a{color:var(--ch-acc-l)}

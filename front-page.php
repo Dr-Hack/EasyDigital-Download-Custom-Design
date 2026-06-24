@@ -46,22 +46,32 @@ if ( ! function_exists( 'cawhome_product_card' ) ) {
 		$thumb = get_the_post_thumbnail_url( $id, 'medium_large' );
 		$price = function_exists( 'edd_price' ) ? edd_price( $id, false ) : '';
 		$stars = function_exists( 'caw_review_stars_html' ) ? caw_review_stars_html( $id ) : '';
+		// caw_review_stars_html() returns an <a> — strip it so we never nest anchors inside the card.
+		$stars = $stars ? preg_replace( '/<\/?a[^>]*>/i', '', $stars ) : '';
+		$link  = esc_url( get_permalink( $id ) );
+		$title = esc_html( get_the_title( $id ) );
 		?>
-		<a class="ch-prod" href="<?php echo esc_url( get_permalink( $id ) ); ?>">
-			<div class="ch-prod-img"<?php if ( $thumb ) echo ' style="background-image:url(\'' . esc_url( $thumb ) . '\')"'; ?>>
-				<?php if ( ! $thumb ) echo '<i class="fas fa-box"></i>'; ?>
-				<?php if ( $cat ) echo '<span class="ch-prod-cat">' . $cat . '</span>'; ?>
-				<?php echo $flag; // phpcs:ignore ?>
-			</div>
+		<div class="ch-prod">
+			<a class="ch-prod-imglink" href="<?php echo $link; ?>">
+				<span class="ch-prod-img">
+					<?php if ( $thumb ) : ?>
+						<img src="<?php echo esc_url( $thumb ); ?>" alt="<?php echo $title; ?>" class="skip-lazy" loading="lazy">
+					<?php else : ?>
+						<i class="fas fa-box"></i>
+					<?php endif; ?>
+					<?php if ( $cat ) echo '<span class="ch-prod-cat">' . $cat . '</span>'; ?>
+					<?php echo $flag; // phpcs:ignore ?>
+				</span>
+			</a>
 			<div class="ch-prod-body">
-				<h3><?php echo esc_html( get_the_title( $id ) ); ?></h3>
+				<h3><a href="<?php echo $link; ?>"><?php echo $title; ?></a></h3>
 				<div class="ch-prod-meta">
 					<span class="ch-prod-price"><?php echo $price; // phpcs:ignore ?></span>
 					<?php if ( $stars ) echo '<span class="ch-stars">' . $stars . '</span>'; // phpcs:ignore ?>
 				</div>
-				<span class="ch-prod-buy">Buy Now</span>
+				<a class="ch-prod-buy" href="<?php echo $link; ?>">Buy Now</a>
 			</div>
-		</a>
+		</div>
 		<?php
 	}
 }
@@ -127,7 +137,7 @@ $cawh_store_url = function_exists( 'edd_get_option' ) ? get_post_type_archive_li
 		</div>
 		<div class="ch-hero-cta">
 			<a class="ch-btn ch-btn-primary" href="<?php echo esc_url( $cawh_store_url ); ?>"><i class="fas fa-store"></i> Browse Store</a>
-			<a class="ch-btn ch-btn-ghost" href="https://www.facebook.com/groups/cryptoawaz" target="_blank" rel="noopener"><i class="fab fa-facebook"></i> Join Community</a>
+			<a class="ch-btn ch-btn-ghost" href="https://www.facebook.com/groups/CryptoCurrencyGlobal" target="_blank" rel="noopener"><i class="fab fa-facebook"></i> Join Community</a>
 		</div>
 		<div class="ch-trust">
 			<span class="ch-ti"><i class="fas fa-bolt ch-acc"></i> <b>Instant</b> delivery</span>
