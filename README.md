@@ -1,6 +1,6 @@
-# Mayosis Child — EDD Checkout & Product Page
+# Mayosis Child — EDD Home, Product & Checkout
 
-A WordPress child theme for [Mayosis](https://themeforest.net/item/mayosis-digital-marketplace-wordpress-theme/26568956) that replaces the default Easy Digital Downloads **checkout** and **single product** pages with a polished, conversion-focused design — without touching the parent theme.
+A WordPress child theme for [Mayosis](https://themeforest.net/item/mayosis-digital-marketplace-wordpress-theme/26568956) that replaces the default Easy Digital Downloads **home page**, **single product** page and **checkout** with a polished, conversion-focused design — without touching the parent theme. Verified on **Mayosis 6.0**.
 
 ---
 
@@ -74,6 +74,45 @@ Replaces the default EDD blocks checkout with a two-column, conversion-focused l
 
 ---
 
+## Part 3 — Home Page
+
+A bespoke, fully dynamic marketplace home page that replaces the old page-builder home, built as a child-theme `front-page.php` (no builder required).
+
+### Sections (all dynamic, pulled live from EDD / WP)
+
+- **Hero** — headline, live AJAX product search, Browse / Join Community CTAs, factual trust strip, and a spotlight collage of real products (Claude, X Premium, "Make Earth Green", Ledger) with live titles/prices.
+- **Live crypto price ticker** — single-line BTC / ETH / USDT / BNB / SOL / XRP with 24h change (free CoinGecko API; swap-in point for the *Premium Cryptocurrency Widgets* shortcode).
+- **Stats band** — product count, total orders delivered, vendor count, cryptos accepted (real numbers).
+- **Best Selling** — top products by `_edd_download_sales`.
+- **Newly Listed** — most recent downloads.
+- **Shop by Category** — `download_category` terms with live counts + icons.
+- **Why Crypto Awaz / How It Works** — value props + 3-step flow.
+- **Become a Vendor** CTA band.
+- **From the Crypto Blog** — latest posts.
+- **Need Help? Start Here** — top FAQ topics linking to the relevant pages + the knowledge base.
+- **Community** — single newsletter Subscribe button (links to the MailPoet signup page) + social chips.
+- **Trustpilot** — free-tier-compliant **Review Collector** CTA only (no rating / "Excellent" claims).
+- **Light + Dark mode** — matches the product/checkout palette (accent `#1e73be`); dark via `body.sp-night-mode-on`.
+
+### How It Works
+
+- A `template_include` filter (`caw_force_front_page_template`, priority 100) returns `front-page.php` for `is_front_page()` — needed because Elementor's page-templates module hijacks the front page at priority 11.
+- All content is queried live (`WP_Query`, `get_terms`, EDD stats), so the page stays current as inventory changes.
+- Live search reuses the theme's `[mayosis_edd_search]` AJAX shortcode.
+- CSS is namespaced under `.cawhome` with `ch-` prefixes to avoid any collision with the theme / Bootstrap.
+- Icons use **FontAwesome 5** class names (`fas` / `fab`).
+
+---
+
+## Global Palette
+
+Site-wide accent colour is unified to **`#1e73be`** (matching the product/checkout pages). This is set in the **theme Customizer**, not in this repo, since Mayosis stores it as a theme mod:
+
+- **Global Styles → Common Style → Primary Color** → `#1e73be`
+- **Header → Dark/Light Mode → Site Link Color** → `#4a9fe0`, **Site Link Hover Color** → `#ffffff`
+
+---
+
 ## Requirements
 
 | Requirement | Version |
@@ -123,8 +162,9 @@ Sourced from the Mayosis Customizer (**Appearance → Customize → Dark Mode**)
 
 | File | Purpose |
 |---|---|
-| `functions.php` | All PHP hooks/helpers — single-product template routing, price model, tabs, reviews, related products, TrustPilot, checkout enhancements |
-| `style.css` | All CSS — product page + checkout, light/dark, responsive |
+| `functions.php` | All PHP hooks/helpers — home + single-product template routing, price model, tabs, reviews, related products, TrustPilot, checkout enhancements |
+| `style.css` | All CSS — home (`.cawhome`) + product page + checkout, light/dark, responsive |
+| `front-page.php` | Custom dynamic home page (routed via `template_include`) |
 | `caw-single-download.php` | Custom single-product template (routed via `template_include`) |
 | `checkout-template.php` | Full-width page template for the checkout page |
 

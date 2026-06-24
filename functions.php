@@ -138,6 +138,23 @@ add_filter( 'edd_is_cart_saving_disabled', '__return_true' );
    Parent theme untouched; remove this filter to revert.
    ============================================================================= */
 
+/*
+ * Force our custom front-page.php for the static front page.
+ * Elementor's page-templates module hijacks the front page via template_include
+ * at priority 11 (returns header-footer.php), overriding WP's front-page.php.
+ * Re-claim it at priority 100 so our bespoke homepage renders.
+ */
+add_filter( 'template_include', 'caw_force_front_page_template', 100 );
+function caw_force_front_page_template( $template ) {
+    if ( is_front_page() && ! is_home() ) {
+        $custom = get_stylesheet_directory() . '/front-page.php';
+        if ( file_exists( $custom ) ) {
+            return $custom;
+        }
+    }
+    return $template;
+}
+
 add_filter( 'template_include', 'caw_force_single_product_template', 99 );
 function caw_force_single_product_template( $template ) {
     if ( is_singular( 'download' ) ) {
