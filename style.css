@@ -814,11 +814,20 @@ body.sp-night-mode-on edd-cart-preview {
 
 /* tabs */
 .caw-tabsection { margin: 50px 0 0; }
-.caw-tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--caw-line); flex-wrap: wrap; }
-.caw-tab { padding: 12px 18px; cursor: pointer; color: var(--caw-muted); font-weight: 600; font-size: 15px; border-bottom: 2px solid transparent; margin-bottom: -1px; }
-.caw-tab.caw-active { color: var(--caw-txt); border-bottom-color: var(--caw-accent2); }
-.caw-tab.caw-info { margin-left: auto; color: var(--caw-accent2); }
-.caw-tab.caw-info::before { content: "\24D8"; margin-right: 6px; }
+/* Pill-button tabs — clearly clickable, unlike the old underline-only style */
+.caw-tabs { display: flex; gap: 8px; flex-wrap: wrap; border-bottom: 1px solid var(--caw-line); padding-bottom: 16px; }
+.caw-tab {
+    display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
+    padding: 9px 17px; font-weight: 600; font-size: 14px; line-height: 1; white-space: nowrap;
+    color: var(--caw-txt); background: var(--caw-card);
+    border: 1px solid var(--caw-line); border-radius: 999px; transition: .15s;
+}
+.caw-tab:hover { border-color: var(--caw-accent2); color: var(--caw-accent2); transform: translateY(-1px); }
+.caw-tab.caw-active { color: #fff; background: var(--caw-accent); border-color: var(--caw-accent); box-shadow: 0 5px 16px rgba(30,115,190,.28); }
+.caw-tab.caw-active:hover { color: #fff; transform: none; }
+.caw-tab.caw-info { color: var(--caw-accent2); }
+.caw-tab.caw-info.caw-active { color: #fff; }
+.caw-tab.caw-info::before { content: "\24D8"; font-style: normal; }
 .caw-panel { display: none; padding: 28px 0; line-height: 1.7; max-width: 900px; }
 .caw-panel.caw-active { display: block; }
 .caw-panel img { max-width: 100%; height: auto; border-radius: 8px; }
@@ -861,6 +870,38 @@ body.sp-night-mode-on .caw-panel textarea { background: #28375a; border-color: #
 }
 .caw-fes-fields .fes-display-field-label { color: var(--caw-muted); width: 50%; }
 .caw-fes-fields .fes-display-field-values { color: var(--caw-txt); font-weight: 600; }
+
+/* ── Vendor Details tab ──────────────────────────────────────────────────── */
+.caw-vendor { max-width: 620px; }
+.caw-vendor-head { display: flex; align-items: center; gap: 15px; }
+.caw-vendor .caw-vendor-avatar,
+.caw-vendor-head img { width: 64px !important; height: 64px !important; border-radius: 50%; object-fit: cover; border: 2px solid var(--caw-line); }
+.caw-vendor-name { font-size: 19px; font-weight: 700; color: var(--caw-txt); display: flex; align-items: center; gap: 7px; }
+.caw-vendor-verified { color: #1e73be; font-size: 14px; }
+.caw-vendor-sub { color: var(--caw-muted); font-size: 13px; margin-top: 4px; display: flex; gap: 16px; flex-wrap: wrap; }
+.caw-vendor-bio { color: var(--caw-muted); font-size: 14px; line-height: 1.65; margin: 16px 0 0; }
+.caw-vendor-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; }
+.caw-vendor-msgbtn {
+    background: var(--caw-accent); color: #fff; border: 0; border-radius: 10px;
+    padding: 11px 22px; font-weight: 700; font-size: 14px; cursor: pointer; transition: .15s;
+}
+.caw-vendor-msgbtn:hover { filter: brightness(1.07); }
+.caw-vendor-msgbtn.caw-active { background: var(--caw-accent2); }
+.caw-vendor-store {
+    display: inline-flex; align-items: center; gap: 5px; background: transparent; color: var(--caw-txt);
+    border: 1px solid var(--caw-line); border-radius: 10px; padding: 11px 22px; font-weight: 600; font-size: 14px;
+}
+.caw-vendor-store:hover { border-color: var(--caw-accent2); color: var(--caw-accent2); }
+body.sp-night-mode-on .caw-product .caw-vendor-store { color: var(--caw-txt) !important; }
+.caw-vendor-contact { margin-top: 22px; border-top: 1px solid var(--caw-line); padding-top: 22px; max-width: 560px; }
+.caw-vendor-contact[hidden] { display: none; }
+.caw-vendor-contact input[type="submit"],
+.caw-vendor-contact button[type="submit"] {
+    background: var(--caw-accent); color: #fff; border: 0; border-radius: 10px;
+    padding: 11px 24px; font-weight: 700; font-size: 14px; cursor: pointer;
+}
+.caw-vendor-contact input[type="submit"]:hover,
+.caw-vendor-contact button[type="submit"]:hover { filter: brightness(1.07); }
 
 @media (max-width: 860px) {
     .caw-fold { grid-template-columns: 1fr; gap: 24px; }

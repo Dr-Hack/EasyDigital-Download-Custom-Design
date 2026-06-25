@@ -434,6 +434,76 @@ function caw_product_info_html( $id ) {
     return ob_get_clean();
 }
 
+/* ---- Vendor details (FES) for the "Vendor Details" tab ------------------- */
+function caw_vendor_html( $id ) {
+    $author_id = (int) get_post_field( 'post_author', $id );
+    if ( ! $author_id ) {
+        return '';
+    }
+
+    // Only treat the author as a "vendor" when FES says so (skip admin-authored products).
+    $is_vendor = function_exists( 'EDD_FES' ) && isset( EDD_FES()->vendors )
+        && method_exists( EDD_FES()->vendors, 'user_is_vendor' )
+        && EDD_FES()->vendors->user_is_vendor( $author_id );
+    if ( ! $is_vendor ) {
+        return '';
+    }
+
+    $name = get_the_author_meta( 'display_name', $author_id );
+    if ( '' === trim( (string) $name ) ) {
+        $name = get_the_author_meta( 'user_nicename', $author_id );
+    }
+    $avatar = get_avatar( $author_id, 72, '', $name, array( 'class' => 'caw-vendor-avatar' ) );
+    $bio    = get_the_author_meta( 'description', $author_id );
+
+    $reg   = get_the_author_meta( 'user_registered', $author_id );
+    $year  = $reg ? date_i18n( 'Y', strtotime( $reg ) ) : '';
+    $count = (int) count_user_posts( $author_id, 'download', true );
+
+    $store_url = '';
+    if ( isset( EDD_FES()->vendors ) && method_exists( EDD_FES()->vendors, 'get_vendor_store_url' ) ) {
+        $store_url = EDD_FES()->vendors->get_vendor_store_url( $author_id );
+    }
+    if ( ! $store_url ) {
+        $store_url = get_author_posts_url( $author_id );
+    }
+
+    ob_start();
+    ?>
+    <div class="caw-vendor">
+        <div class="caw-vendor-head">
+            <?php echo $avatar; // phpcs:ignore WordPress.Security.EscapeOutput ?>
+            <div class="caw-vendor-meta">
+                <div class="caw-vendor-name">
+                    <?php echo esc_html( $name ); ?>
+                    <span class="caw-vendor-verified" title="<?php esc_attr_e( 'Verified vendor', 'mayosis' ); ?>">&#10004;</span>
+                </div>
+                <div class="caw-vendor-sub">
+                    <?php if ( $year ) : ?><span><?php printf( esc_html__( 'Member since %s', 'mayosis' ), esc_html( $year ) ); ?></span><?php endif; ?>
+                    <?php if ( $count ) : ?><span><?php printf( esc_html( _n( '%d product', '%d products', $count, 'mayosis' ) ), $count ); ?></span><?php endif; ?>
+                </div>
+            </div>
+        </div>
+
+        <?php if ( $bio ) : ?>
+            <p class="caw-vendor-bio"><?php echo esc_html( $bio ); ?></p>
+        <?php endif; ?>
+
+        <div class="caw-vendor-actions">
+            <button type="button" class="caw-vendor-msgbtn"><?php esc_html_e( 'Message Vendor', 'mayosis' ); ?></button>
+            <?php if ( $store_url ) : ?>
+                <a class="caw-vendor-store" href="<?php echo esc_url( $store_url ); ?>"><?php esc_html_e( 'Visit Store', 'mayosis' ); ?> &rarr;</a>
+            <?php endif; ?>
+        </div>
+
+        <div class="caw-vendor-contact" hidden>
+            <?php echo do_shortcode( '[fes_vendor_contact_form id="' . $author_id . '"]' ); // phpcs:ignore WordPress.Security.EscapeOutput ?>
+        </div>
+    </div>
+    <?php
+    return ob_get_clean();
+}
+
 /* ---- Content tabs: split the_content() on <h2> + Reviews + Info --------- */
 function caw_build_tabs( $id ) {
     $content = apply_filters( 'the_content', get_post_field( 'post_content', $id ) );
@@ -466,6 +536,10 @@ function caw_build_tabs( $id ) {
     $reviews = caw_reviews_html();
     if ( '' !== trim( $reviews ) ) {
         $tabs[] = array( 'title' => __( 'Reviews', 'mayosis' ), 'html' => $reviews, 'key' => 'reviews' );
+    }
+    $vendor_html = caw_vendor_html( $id );
+    if ( '' !== trim( $vendor_html ) ) {
+        $tabs[] = array( 'title' => __( 'Vendor Details', 'mayosis' ), 'html' => $vendor_html, 'key' => 'vendor' );
     }
     $info_html = caw_product_info_html( $id );
     if ( '' !== $fes_html ) {

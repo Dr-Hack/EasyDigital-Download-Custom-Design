@@ -485,6 +485,16 @@ while ( have_posts() ) :
                 if (rt) { rt.click(); rt.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
             });
         }
+        // --- Vendor: reveal the contact form on "Message Vendor" ---
+        var vmsg = document.querySelector('.caw-vendor-msgbtn');
+        if (vmsg) {
+            vmsg.addEventListener('click', function () {
+                var c = document.querySelector('.caw-vendor-contact');
+                if (!c) return;
+                if (c.hasAttribute('hidden')) { c.removeAttribute('hidden'); vmsg.classList.add('caw-active'); }
+                else { c.setAttribute('hidden', ''); vmsg.classList.remove('caw-active'); }
+            });
+        }
     })();
     </script>
 
