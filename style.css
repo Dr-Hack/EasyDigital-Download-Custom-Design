@@ -219,8 +219,8 @@
 }
 
 .edd-blocks__checkout .edd-gateway-option.edd-gateway-option-selected {
-    border-color: #6366f1 !important;
-    background: rgba(99, 102, 241, 0.09) !important;
+    border-color: #1e73be !important;
+    background: rgba(30, 115, 190, 0.09) !important;
 }
 
 /* Discount code field */
@@ -301,8 +301,8 @@
     font-size: 13px !important;
     font-weight: 600 !important;
     border-radius: 0 !important;
-    color: #c4b5fd !important;
-    background: rgba(99, 102, 241, 0.10) !important;
+    color: #9ecbf0 !important;
+    background: rgba(30, 115, 190, 0.10) !important;
     border: none !important;
     border-bottom: 1px solid rgba(255, 255, 255, 0.07) !important;
     cursor: pointer;
@@ -311,7 +311,7 @@
 }
 
 #edd_sl_show_renewal_form:hover {
-    background: rgba(99, 102, 241, 0.18) !important;
+    background: rgba(30, 115, 190, 0.18) !important;
 }
 
 /* Expanded form fields container */
@@ -455,8 +455,8 @@ body.sp-night-mode-on #edd_final_total_wrap {
 }
 
 body.sp-night-mode-on .edd-blocks__checkout .edd-gateway-option.edd-gateway-option-selected {
-    border-color: #6366f1 !important;
-    background: rgba(99, 102, 241, 0.12) !important;
+    border-color: #1e73be !important;
+    background: rgba(30, 115, 190, 0.12) !important;
 }
 
 /* Renewal form: override EDD SL's #fafafa fieldset background */
@@ -466,8 +466,8 @@ body.sp-night-mode-on #edd_sl_renewal_form fieldset#edd_sl_renewal_fields {
 }
 
 body.sp-night-mode-on #edd_sl_show_renewal_form {
-    background: rgba(99, 102, 241, 0.15) !important;
-    color: #c4b5fd !important;
+    background: rgba(30, 115, 190, 0.15) !important;
+    color: #9ecbf0 !important;
     border-bottom-color: #28375a !important;
 }
 
@@ -519,6 +519,63 @@ body.sp-night-mode-on .edd-warn {
 body.sp-night-mode-on .edd-alert strong,
 body.sp-night-mode-on .edd-alert a {
     color: inherit !important;
+}
+
+/* =============================================================================
+   PURCHASE CONFIRMATION / RECEIPT — NIGHT MODE  (EDD receipt BLOCK)
+   The page uses the EDD receipt *block* (.wp-block-edd-receipt /
+   .edd-blocks-receipt__totals / __items / .edd-blocks__row), whose grids are
+   transparent with light-grey borders. In night mode the body text turns light
+   but the content container stays WHITE (the page carries an inline light
+   mayosis_page_bg), so the text is invisible. Force the confirmation content area
+   dark (scoped via :has so no other page is touched) and restyle the block's
+   card / borders / links.
+   ============================================================================= */
+body.sp-night-mode-on .container-fluid:has(.edd-blocks-receipt__totals),
+body.sp-night-mode-on .container:has(.edd-blocks-receipt__totals),
+body.sp-night-mode-on .has_mayosis_dark_bg:has(.edd-blocks-receipt__totals) {
+    background: #161b2c !important;
+}
+
+/* Intro success message ("Your order has been recorded…") + page copy + headings */
+body.sp-night-mode-on .has_mayosis_dark_bg:has(.edd-blocks-receipt__totals) [class*="col-"],
+body.sp-night-mode-on .has_mayosis_dark_bg:has(.edd-blocks-receipt__totals) p,
+body.sp-night-mode-on .has_mayosis_dark_bg:has(.edd-blocks-receipt__totals) h3,
+body.sp-night-mode-on .wp-block-edd-receipt,
+body.sp-night-mode-on .edd-blocks-receipt__totals,
+body.sp-night-mode-on .edd-blocks-receipt__items,
+body.sp-night-mode-on .edd-blocks__row-label {
+    color: #e8edf5 !important;
+}
+
+/* Receipt grids → dark card */
+body.sp-night-mode-on .edd-blocks-receipt__totals,
+body.sp-night-mode-on .edd-blocks-receipt__items {
+    background: #192237 !important;
+    border-color: #28375a !important;
+    border-radius: 8px;
+}
+
+/* Row dividers */
+body.sp-night-mode-on .edd-blocks-receipt__row-item,
+body.sp-night-mode-on .edd-blocks-receipt__row-header,
+body.sp-night-mode-on .edd-blocks-receipt__items .edd-blocks__row {
+    border-bottom-color: #28375a !important;
+}
+
+/* Links (Discord/Facebook/Twitter, invoice, download files) */
+body.sp-night-mode-on .has_mayosis_dark_bg:has(.edd-blocks-receipt__totals) a,
+body.sp-night-mode-on .wp-block-edd-receipt a {
+    color: #4a9fe0 !important;
+}
+
+/* "Download Instructions" file button — parent theme paints it green (#00b478)
+   and the link rule above tints its label blue; restore a sky-blue button. */
+body.sp-night-mode-on .edd_purchase_receipt_files .edd_download_file_link,
+body.sp-night-mode-on .edd_purchase_receipt_files .edd_download_file_link:hover {
+    background: #1e73be !important;
+    border-color: #1e73be !important;
+    color: #fff !important;
 }
 
 /* ── Responsive ──────────────────────────────────────────────────────────── */
@@ -676,6 +733,29 @@ body.sp-night-mode-on .caw-sales-badge { color: #fbbf24; background: rgba(245, 1
     display: block; width: 100%; text-align: center; background: transparent; color: var(--caw-txt);
     border: 1px solid var(--caw-line); padding: 12px; border-radius: 12px; margin-top: 10px;
 }
+
+/* ── Stock / availability badge (EDD Purchase Limit) ─────────────────────── */
+.caw-stockrow { margin: 10px 0 2px; }
+.caw-stock { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 700; padding: 5px 12px; border-radius: 999px; border: 1px solid transparent; }
+.caw-stock i { font-size: 8px; }
+.caw-stock-in  { color: #16a34a; background: rgba(34,197,94,.10); border-color: rgba(34,197,94,.28); }
+.caw-stock-low { color: #c2740a; background: rgba(234,179,8,.12); border-color: rgba(234,179,8,.32); }
+.caw-stock-out { color: #dc2626; background: rgba(239,68,68,.10); border-color: rgba(239,68,68,.30); }
+body.sp-night-mode-on .caw-stock-in  { color: #4ade80; }
+body.sp-night-mode-on .caw-stock-low { color: #fbbf24; }
+body.sp-night-mode-on .caw-stock-out { color: #f87171; }
+
+/* sold-out CTA */
+.caw-product .caw-cta.caw-soldout {
+    background: #e7ebf2 !important; color: #8a93a6 !important;
+    cursor: not-allowed; filter: none !important;
+}
+body.sp-night-mode-on .caw-product .caw-cta.caw-soldout { background: #28375a !important; color: #9fb0c9 !important; }
+
+/* sold-out variable option */
+.caw-opt.caw-soldout { opacity: .55; cursor: not-allowed; }
+.caw-opt.caw-soldout .caw-optprice { color: #dc2626; font-weight: 700; }
+body.sp-night-mode-on .caw-opt.caw-soldout .caw-optprice { color: #f87171; }
 
 /* Hide the native EDD form entirely (we drive it from the selector + CTA).
    The form stays in the DOM, so our CTA can still .click() the add-to-cart button. */
@@ -984,9 +1064,9 @@ body.sp-night-mode-on .cawhome{
 .ch-prod{background:var(--ch-card);border:1px solid var(--ch-line);border-radius:var(--ch-radius);overflow:hidden;transition:.18s;display:block}
 .ch-prod:hover{border-color:var(--ch-acc);transform:translateY(-4px);box-shadow:0 16px 38px rgba(30,115,190,.16)}
 .ch-prod-img{height:150px;display:flex;align-items:center;justify-content:center;font-size:42px;color:#6b7a9c;position:relative;background-size:cover;background-position:center;background-color:#0f1626}
-.ch-prod-cat{position:absolute;top:10px;left:10px;font-size:11px;font-weight:600;color:#dbe4f7;background:rgba(16,19,31,.78);border:1px solid var(--ch-line2);padding:3px 9px;border-radius:999px}
-.ch-prod-fire{position:absolute;top:10px;right:10px;font-size:11px;font-weight:700;color:#fff;background:rgba(243,167,18,.92);padding:3px 9px;border-radius:999px}
-.ch-prod-fire.ch-new{background:var(--ch-acc)}
+.ch-prod-cat{display:inline-block;max-width:100%;margin-bottom:9px;font-size:9px;font-weight:800;letter-spacing:.7px;text-transform:uppercase;color:#fff;background:var(--ch-acc);border:1px solid var(--ch-acc);padding:2px 8px;border-radius:999px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:middle}
+.ch-prod-fire{position:absolute;top:10px;right:10px;z-index:3;font-size:11px;font-weight:800;letter-spacing:.3px;color:#fff;background:rgba(243,167,18,.97);padding:4px 11px;border-radius:999px;box-shadow:0 3px 10px rgba(0,0,0,.5)}
+.ch-prod-fire.ch-new{background:var(--ch-acc);border:1px solid rgba(255,255,255,.2)}
 .ch-prod-body{padding:15px 16px 17px}
 .ch-prod-body h3{font-size:15px;font-weight:700;line-height:1.35;margin-bottom:9px;min-height:40px;color:var(--ch-txt)}
 .ch-prod-meta{display:flex;align-items:center;justify-content:space-between;gap:8px}
@@ -1122,3 +1202,25 @@ body.sp-night-mode-on .cawhome .ch-hero-search{box-shadow:0 12px 40px rgba(0,0,0
 .cawhome img.emoji{width:1em!important;height:1em!important;display:inline!important;object-fit:initial!important;aspect-ratio:auto!important;margin:0 .05em 0 .1em!important;vertical-align:-0.1em!important;box-shadow:none!important}
 .cawhome .ch-prod-body h3 a{color:var(--ch-txt);text-decoration:none}
 .cawhome .ch-prod:hover .ch-prod-body h3 a{color:var(--ch-acc-l)}
+
+/* --- DARK MODE link-colour reclaim -----------------------------------------
+   The global night-mode site-link colour (body.sp-night-mode-on a{color:#4a9fe0
+   !important}, set in the Customizer) has higher specificity than our single-class
+   .ch-btn rules, so it repaints every <a> button + the spans inside the image
+   links blue. These overrides are scoped under `body.sp-night-mode-on .cawhome`
+   (3 classes) so they outrank the global `a` rule and restore the design colours.
+   --------------------------------------------------------------------------- */
+body.sp-night-mode-on .cawhome a{color:var(--ch-txt)!important}                       /* default link = body text */
+body.sp-night-mode-on .cawhome .ch-btn-primary,
+body.sp-night-mode-on .cawhome .ch-btn-primary:hover{color:#fff!important}
+body.sp-night-mode-on .cawhome .ch-btn-ghost{color:var(--ch-acc-l)!important}
+body.sp-night-mode-on .cawhome .ch-btn-ghost:hover{color:#fff!important}
+body.sp-night-mode-on .cawhome .ch-prod-buy{color:var(--ch-acc-l)!important}
+body.sp-night-mode-on .cawhome .ch-prod:hover .ch-prod-buy{color:#fff!important}
+body.sp-night-mode-on .cawhome .ch-prod-body h3 a{color:var(--ch-txt)!important}
+body.sp-night-mode-on .cawhome .ch-prod:hover .ch-prod-body h3 a{color:var(--ch-acc-l)!important}
+body.sp-night-mode-on .cawhome .ch-post-tag{color:var(--ch-acc-l)!important}
+body.sp-night-mode-on .cawhome .ch-chip{color:var(--ch-txt)!important}
+/* fire/NEW badges still sit *inside* the image <a>; pin their white text */
+body.sp-night-mode-on .cawhome .ch-prod-fire,
+body.sp-night-mode-on .cawhome .ch-prod-fire.ch-new{color:#fff!important}

@@ -476,7 +476,7 @@ function caw_build_tabs( $id ) {
     return $tabs;
 }
 
-/* ---- "WANT SOMETHING ELSE?" cross-category related products ------------- */
+/* ---- Related products — SAME category as the current product ------------ */
 function caw_related_products( $id, $limit = 4 ) {
     $cur_cats = wp_get_object_terms( $id, 'download_category', array( 'fields' => 'ids' ) );
 
@@ -494,15 +494,84 @@ function caw_related_products( $id, $limit = 4 ) {
                 'taxonomy' => 'download_category',
                 'field'    => 'id',
                 'terms'    => $cur_cats,
-                'operator' => 'NOT IN',
+                'operator' => 'IN',
             ),
         );
     }
     $q = new WP_Query( $args );
-    if ( ! $q->have_posts() ) { // small catalog fallback: any other product
+    // Fallback: if this category has too few other products, fill with any others.
+    if ( ! $q->have_posts() ) {
         wp_reset_postdata();
         unset( $args['tax_query'] );
         $q = new WP_Query( $args );
     }
     return $q;
+}
+
+/* ---- Stock / availability via the EDD Purchase Limit extension -----------
+   Returns structured stock data for the custom single-product template, or
+   null when the EDD Purchase Limit plugin isn't active. Limit semantics from
+   the plugin: 0/blank = unlimited (untracked), -1 = manually sold out, >0 =
+   capped. Counts are site-wide (matches the plugin's default scope). ------- */
+function caw_stock_info( $id ) {
+    if ( ! function_exists( 'edd_pl_get_file_purchase_limit' ) || ! function_exists( 'edd_pl_get_file_purchases' ) ) {
+        return null;
+    }
+
+    // Build a per-item stock record from a raw limit + sold count.
+    $make = function ( $limit, $sold ) {
+        $limit = is_numeric( $limit ) ? (int) $limit : 0;
+        $sold  = (int) $sold;
+        if ( 0 === $limit ) {
+            return array( 'tracked' => false ); // unlimited
+        }
+        if ( -1 === $limit ) {
+            return array( 'tracked' => true, 'limit' => -1, 'sold' => $sold, 'remaining' => 0, 'soldOut' => true );
+        }
+        $remaining = max( 0, $limit - $sold );
+        return array(
+            'tracked'   => true,
+            'limit'     => $limit,
+            'sold'      => $sold,
+            'remaining' => $remaining,
+            'soldOut'   => $remaining <= 0,
+        );
+    };
+
+    if ( function_exists( 'edd_has_variable_prices' ) && edd_has_variable_prices( $id ) ) {
+        $prices     = edd_get_variable_prices( $id );
+        $options    = array();
+        $any_track  = false;
+        $all_out    = true;
+        if ( $prices ) {
+            foreach ( $prices as $pid => $p ) {
+                $info = $make(
+                    edd_pl_get_file_purchase_limit( $id, null, $pid ),
+                    edd_pl_get_file_purchases( $id, $pid )
+                );
+                $options[ (int) $pid ] = $info;
+                if ( ! empty( $info['tracked'] ) ) {
+                    $any_track = true;
+                    if ( empty( $info['soldOut'] ) ) {
+                        $all_out = false;
+                    }
+                } else {
+                    $all_out = false; // an untracked option is always buyable
+                }
+            }
+        }
+        return array(
+            'variable'   => true,
+            'tracked'    => $any_track,
+            'options'    => $options,
+            'allSoldOut' => $any_track ? $all_out : false,
+        );
+    }
+
+    $count = function_exists( 'edd_pl_get_download_purchase_count' )
+        ? edd_pl_get_download_purchase_count( $id )
+        : edd_pl_get_file_purchases( $id );
+    $info             = $make( edd_pl_get_file_purchase_limit( $id ), $count );
+    $info['variable'] = false;
+    return $info;
 }

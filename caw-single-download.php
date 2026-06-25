@@ -19,6 +19,7 @@ while ( have_posts() ) :
     the_post();
     $id    = get_the_ID();
     $model = caw_get_price_model( $id );
+    $stock = function_exists( 'caw_stock_info' ) ? caw_stock_info( $id ) : null;
 
     // Secondary / custom button data.
     $custom_url   = get_post_meta( $id, 'custom-button-url', true );
@@ -115,10 +116,14 @@ while ( have_posts() ) :
                         <div class="caw-selblock">
                             <div class="caw-sellabel"><?php esc_html_e( 'Choose an option', 'mayosis' ); ?></div>
                             <div class="caw-opts">
-                                <?php foreach ( $model['options'] as $i => $o ) : ?>
-                                    <div class="caw-opt<?php echo 0 === $i ? ' caw-active' : ''; ?>" data-pid="<?php echo (int) $o['pid']; ?>">
+                                <?php foreach ( $model['options'] as $i => $o ) :
+                                    $os    = ( $stock && ! empty( $stock['variable'] ) && isset( $stock['options'][ $o['pid'] ] ) ) ? $stock['options'][ $o['pid'] ] : null;
+                                    $o_out = $os && ! empty( $os['soldOut'] );
+                                    ?>
+                                    <div class="caw-opt<?php echo 0 === $i ? ' caw-active' : ''; ?><?php echo $o_out ? ' caw-soldout' : ''; ?>"
+                                         data-pid="<?php echo (int) $o['pid']; ?>"<?php echo $o_out ? ' data-soldout="1"' : ''; ?>>
                                         <span class="caw-optname"><?php echo esc_html( $o['name'] ); ?></span>
-                                        <span class="caw-optprice"><?php echo esc_html( $model['pidPrice'][ $o['pid'] ] ); ?></span>
+                                        <span class="caw-optprice"><?php echo $o_out ? esc_html__( 'Sold out', 'mayosis' ) : esc_html( $model['pidPrice'][ $o['pid'] ] ); ?></span>
                                     </div>
                                 <?php endforeach; ?>
                             </div>
@@ -136,13 +141,40 @@ while ( have_posts() ) :
                     </div>
                 <?php endif; ?>
 
+                <?php
+                // ---- Stock / availability badge (EDD Purchase Limit extension) ----
+                $cta_soldout = false;
+                $stock_badge = '';
+                if ( $stock ) {
+                    if ( empty( $stock['variable'] ) ) {
+                        if ( ! empty( $stock['tracked'] ) ) {
+                            if ( ! empty( $stock['soldOut'] ) ) {
+                                $cta_soldout = true;
+                                $stock_badge = '<span class="caw-stock caw-stock-out"><i class="fas fa-circle"></i> ' . esc_html__( 'Out of Stock', 'mayosis' ) . '</span>';
+                            } elseif ( $stock['remaining'] <= 5 ) {
+                                $stock_badge = '<span class="caw-stock caw-stock-low"><i class="fas fa-circle"></i> ' . sprintf( esc_html__( 'Only %d left', 'mayosis' ), $stock['remaining'] ) . '</span>';
+                            } else {
+                                $stock_badge = '<span class="caw-stock caw-stock-in"><i class="fas fa-circle"></i> ' . esc_html__( 'In Stock', 'mayosis' ) . '</span>';
+                            }
+                        }
+                    } else {
+                        // Variable: the badge is filled by JS for the selected option; seed hidden.
+                        if ( ! empty( $stock['allSoldOut'] ) ) { $cta_soldout = true; }
+                        $stock_badge = '<span class="caw-stock" style="display:none"></span>';
+                    }
+                }
+                if ( $stock_badge ) {
+                    echo '<div class="caw-stockrow">' . $stock_badge . '</div>'; // phpcs:ignore WordPress.Security.EscapeOutput
+                }
+                ?>
+
                 <!-- Native EDD purchase form (options hidden via CSS, submit triggered by our CTA) -->
                 <div class="caw-edd-form">
                     <?php echo edd_get_purchase_link( array( 'download_id' => $id ) ); // phpcs:ignore ?>
                 </div>
 
-                <button type="button" class="caw-cta" id="caw-buy">
-                    <?php esc_html_e( 'Buy Now', 'mayosis' ); ?><span class="caw-cta-price"></span>
+                <button type="button" class="caw-cta<?php echo $cta_soldout ? ' caw-soldout' : ''; ?>" id="caw-buy"<?php echo $cta_soldout ? ' disabled' : ''; ?>>
+                    <span class="caw-cta-label"><?php echo $cta_soldout ? esc_html__( 'Out of Stock', 'mayosis' ) : esc_html__( 'Buy Now', 'mayosis' ); ?></span><span class="caw-cta-price"></span>
                 </button>
 
                 <?php if ( $custom_url ) : ?>
@@ -170,14 +202,14 @@ while ( have_posts() ) :
             </div><!-- /buybox -->
         </div><!-- /fold -->
 
-        <!-- WANT SOMETHING ELSE? (above tabs for cross-sell) -->
+        <!-- RELATED PRODUCTS (same category, above tabs) -->
         <?php
         $related = caw_related_products( $id, 4 );
         if ( $related->have_posts() ) :
             ?>
             <div class="caw-related">
                 <div class="caw-related-head">
-                    <span class="caw-cube">&#129513;</span> <?php esc_html_e( 'WANT SOMETHING ELSE?', 'mayosis' ); ?>
+                    <span class="caw-cube">&#129513;</span> <?php esc_html_e( 'YOU MIGHT ALSO LIKE', 'mayosis' ); ?>
                     <a href="<?php echo esc_url( get_post_type_archive_link( 'download' ) ); ?>"><?php esc_html_e( 'Browse all products', 'mayosis' ); ?> &rarr;</a>
                 </div>
                 <div class="caw-relgrid">
@@ -249,6 +281,10 @@ while ( have_posts() ) :
         'map'        => isset( $model['map'] ) ? $model['map'] : new stdClass(),
         'pidPrice'   => isset( $model['pidPrice'] ) ? $model['pidPrice'] : new stdClass(),
         'buyNow'     => __( 'Buy Now', 'mayosis' ),
+        'stock'      => ( $stock && ! empty( $stock['variable'] ) && ! empty( $stock['options'] ) ) ? $stock['options'] : new stdClass(),
+        'outLabel'   => __( 'Out of Stock', 'mayosis' ),
+        'inLabel'    => __( 'In Stock', 'mayosis' ),
+        'lowLabel'   => __( 'Only %d left', 'mayosis' ),
     );
     ?>
     <script>
@@ -260,10 +296,32 @@ while ( have_posts() ) :
         var priceEl = box.querySelector('.caw-price');
         var perEl   = box.querySelector('.caw-per');
         var ctaPrice = box.querySelector('.caw-cta-price');
+        var ctaLabel = box.querySelector('.caw-cta-label');
+        var stockBadge = box.querySelector('.caw-stock');
         var cta = box.querySelector('#caw-buy');
 
         function nativeInputs() {
             return form ? form.querySelectorAll('input[name^="edd_options[price_id]"]') : [];
+        }
+        function stockFor(pid) { return (DATA.stock && DATA.stock[pid]) ? DATA.stock[pid] : null; }
+        // Update the stock badge + CTA state for the selected price option.
+        function applyStock(pid, pstr) {
+            var s = stockFor(pid), soldOut = false, text = '', cls = '';
+            if (s && s.tracked) {
+                if (s.soldOut)            { soldOut = true; text = DATA.outLabel; cls = 'caw-stock-out'; }
+                else if (s.remaining <= 5){ text = DATA.lowLabel.replace('%d', s.remaining); cls = 'caw-stock-low'; }
+                else                      { text = DATA.inLabel; cls = 'caw-stock-in'; }
+            }
+            if (stockBadge) {
+                if (text) { stockBadge.style.display = ''; stockBadge.className = 'caw-stock ' + cls; stockBadge.innerHTML = '<i class="fas fa-circle"></i> ' + text; }
+                else      { stockBadge.style.display = 'none'; stockBadge.textContent = ''; }
+            }
+            if (cta) {
+                cta.classList.toggle('caw-soldout', soldOut);
+                cta.disabled = soldOut;
+                if (ctaLabel) ctaLabel.textContent = soldOut ? DATA.outLabel : DATA.buyNow;
+                if (ctaPrice) ctaPrice.textContent = (!soldOut && pstr) ? ' — ' + pstr : '';
+            }
         }
         function setPid(pid) {
             var inputs = nativeInputs(), sel = null;
@@ -275,7 +333,7 @@ while ( have_posts() ) :
             if (sel) sel.dispatchEvent(new Event('change', { bubbles: true }));
             var pstr = DATA.pidPrice[pid] || '';
             if (priceEl) priceEl.textContent = pstr;
-            if (ctaPrice) ctaPrice.textContent = pstr ? ' — ' + pstr : '';
+            applyStock(pid, pstr);
         }
 
         // --- Two-axis selector ---
@@ -283,15 +341,21 @@ while ( have_posts() ) :
         function curPid() {
             return DATA.map[state.plan + '|||' + state.dur];
         }
+        // A plan/duration combo is selectable only if it exists AND isn't sold out.
+        function comboAvail(plan, dur) {
+            var pid = DATA.map[plan + '|||' + dur];
+            if (pid === undefined) return false;
+            var s = stockFor(pid);
+            return !(s && s.tracked && s.soldOut);
+        }
         function refreshTwoAxis() {
-            // grey out durations unavailable for the active plan
+            // grey out durations unavailable (missing or sold out) for the active plan
             box.querySelectorAll('.caw-dur').forEach(function (d) {
                 var dv = d.getAttribute('data-dur');
-                var avail = DATA.map.hasOwnProperty(state.plan + '|||' + dv);
-                d.classList.toggle('caw-disabled', !avail);
+                d.classList.toggle('caw-disabled', !comboAvail(state.plan, dv));
             });
             // if current duration invalid, pick first available
-            if (!DATA.map.hasOwnProperty(state.plan + '|||' + state.dur)) {
+            if (!comboAvail(state.plan, state.dur)) {
                 var firstAvail = null;
                 box.querySelectorAll('.caw-dur').forEach(function (d) {
                     if (!firstAvail && !d.classList.contains('caw-disabled')) firstAvail = d;
@@ -337,11 +401,21 @@ while ( have_posts() ) :
             // --- Single-axis option list ---
             box.querySelectorAll('.caw-opt').forEach(function (el) {
                 el.addEventListener('click', function () {
+                    if (el.getAttribute('data-soldout')) return; // can't pick a sold-out option
                     box.querySelectorAll('.caw-opt').forEach(function (o) { o.classList.toggle('caw-active', o === el); });
                     setPid(parseInt(el.getAttribute('data-pid'), 10));
                 });
             });
             var opt0 = box.querySelector('.caw-opt.caw-active') || box.querySelector('.caw-opt');
+            // if the default option is sold out, jump to the first available one
+            if (opt0 && opt0.getAttribute('data-soldout')) {
+                var avail = null;
+                box.querySelectorAll('.caw-opt').forEach(function (o) { if (!avail && !o.getAttribute('data-soldout')) avail = o; });
+                if (avail) {
+                    box.querySelectorAll('.caw-opt').forEach(function (o) { o.classList.toggle('caw-active', o === avail); });
+                    opt0 = avail;
+                }
+            }
             if (opt0) setPid(parseInt(opt0.getAttribute('data-pid'), 10));
         }
 

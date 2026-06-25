@@ -59,11 +59,11 @@ if ( ! function_exists( 'cawhome_product_card' ) ) {
 					<?php else : ?>
 						<i class="fas fa-box"></i>
 					<?php endif; ?>
-					<?php if ( $cat ) echo '<span class="ch-prod-cat">' . $cat . '</span>'; ?>
 					<?php echo $flag; // phpcs:ignore ?>
 				</span>
 			</a>
 			<div class="ch-prod-body">
+				<?php if ( $cat ) echo '<span class="ch-prod-cat">' . $cat . '</span>'; ?>
 				<h3><a href="<?php echo $link; ?>"><?php echo $title; ?></a></h3>
 				<div class="ch-prod-meta">
 					<span class="ch-prod-price"><?php echo $price; // phpcs:ignore ?></span>
