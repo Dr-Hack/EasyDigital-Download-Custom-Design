@@ -757,6 +757,36 @@ body.sp-night-mode-on .caw-product .caw-cta.caw-soldout { background: #28375a !i
 .caw-opt.caw-soldout .caw-optprice { color: #dc2626; font-weight: 700; }
 body.sp-night-mode-on .caw-opt.caw-soldout .caw-optprice { color: #f87171; }
 
+/* Buy Now loading state — instant feedback while the add-to-cart AJAX runs */
+.caw-product .caw-cta.caw-loading { cursor: progress; opacity: .94; }
+.caw-spinner {
+    display: inline-block; width: 16px; height: 16px; margin-right: 4px; vertical-align: -3px;
+    border: 2px solid rgba(255,255,255,.45); border-top-color: #fff; border-radius: 50%;
+    animation: caw-spin .6s linear infinite;
+}
+@keyframes caw-spin { to { transform: rotate(360deg); } }
+
+/* ── Slide-out cart (EDD Pro "Cart Preview", Shadow DOM) — night mode ───────
+   The dialog lives in a shadow root, so normal selectors can't reach it. It IS
+   themeable via CSS custom properties (which inherit through the shadow boundary).
+   The plugin sets light defaults on :host, so we override the variables ON the
+   host element with !important to win the cascade. ----------------------------- */
+body.sp-night-mode-on edd-cart-preview {
+    --edd-cart-preview-color-text: #e8edf5 !important;
+    --edd-cart-preview-color-text-muted: #9fb0c9 !important;
+    --edd-cart-preview-color-border: #28375a !important;
+    --edd-cart-preview-color-background: #192237 !important;
+    --edd-cart-preview-color-background-dimmed: #161b2c !important;
+    --edd-cart-preview-color-backdrop: rgba(5, 8, 15, .62) !important;
+    --edd-cart-preview-color-link: #4a9fe0 !important;
+    --edd-cart-preview-color-link-hover: #7cbef0 !important;
+    --edd-cart-preview-color-message: #4a9fe0 !important;
+    --edd-cart-preview-color-message-light: rgba(74, 159, 224, .12) !important;
+    --edd-cart-preview-color-primary: #1e73be !important;
+    --edd-cart-preview-color-primary-hover: #195f9c !important;
+    --edd-cart-preview-color-primary-text: #ffffff !important;
+}
+
 /* Hide the native EDD form entirely (we drive it from the selector + CTA).
    The form stays in the DOM, so our CTA can still .click() the add-to-cart button. */
 .caw-edd-form { display: none !important; }

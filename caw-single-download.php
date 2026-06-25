@@ -282,9 +282,10 @@ while ( have_posts() ) :
         'pidPrice'   => isset( $model['pidPrice'] ) ? $model['pidPrice'] : new stdClass(),
         'buyNow'     => __( 'Buy Now', 'mayosis' ),
         'stock'      => ( $stock && ! empty( $stock['variable'] ) && ! empty( $stock['options'] ) ) ? $stock['options'] : new stdClass(),
-        'outLabel'   => __( 'Out of Stock', 'mayosis' ),
-        'inLabel'    => __( 'In Stock', 'mayosis' ),
-        'lowLabel'   => __( 'Only %d left', 'mayosis' ),
+        'outLabel'    => __( 'Out of Stock', 'mayosis' ),
+        'inLabel'     => __( 'In Stock', 'mayosis' ),
+        'lowLabel'    => __( 'Only %d left', 'mayosis' ),
+        'addingLabel' => __( 'Adding to cart…', 'mayosis' ),
     );
     ?>
     <script>
@@ -419,14 +420,49 @@ while ( have_posts() ) :
             if (opt0) setPid(parseInt(opt0.getAttribute('data-pid'), 10));
         }
 
-        // --- CTA triggers the native submit/add-to-cart ---
+        // --- CTA triggers the native submit/add-to-cart, with a loading state ---
+        // The add-to-cart is an AJAX round-trip; without feedback the button feels
+        // dead (esp. on mobile, where users double-tap). Show a spinner + "Adding…"
+        // immediately and revert when the slide-out cart opens (edd:cart-preview:opened)
+        // or EDD's legacy edd_cart_item_added fires; a timeout is the safety net.
+        function ctaLoading(on) {
+            if (!cta) return;
+            if (on) {
+                cta.classList.add('caw-loading');
+                cta.setAttribute('aria-busy', 'true');
+                cta.dataset.loading = '1';
+                if (!cta.querySelector('.caw-spinner')) {
+                    var sp = document.createElement('span');
+                    sp.className = 'caw-spinner';
+                    sp.setAttribute('aria-hidden', 'true');
+                    cta.insertBefore(sp, cta.firstChild);
+                }
+                if (ctaLabel) ctaLabel.textContent = DATA.addingLabel;
+                if (ctaPrice) ctaPrice.style.display = 'none';
+            } else {
+                cta.classList.remove('caw-loading');
+                cta.removeAttribute('aria-busy');
+                delete cta.dataset.loading;
+                var ex = cta.querySelector('.caw-spinner');
+                if (ex) ex.parentNode.removeChild(ex);
+                if (ctaLabel) ctaLabel.textContent = DATA.buyNow;
+                if (ctaPrice) ctaPrice.style.display = '';
+            }
+        }
         if (cta) {
             cta.addEventListener('click', function () {
+                if (cta.disabled || cta.dataset.loading) return; // sold out or already adding
                 var btn = (form && (form.querySelector('.edd-add-to-cart') ||
                                     form.querySelector('input[type=submit]') ||
                                     form.querySelector('button[type=submit]') ||
                                     form.querySelector('.edd-submit')));
-                if (btn) btn.click();
+                if (!btn) return;
+                ctaLoading(true);
+                var done = false, revert = function () { if (done) return; done = true; ctaLoading(false); };
+                document.addEventListener('edd:cart-preview:opened', revert, { once: true });
+                if (window.jQuery) window.jQuery(document.body).one('edd_cart_item_added', revert);
+                setTimeout(revert, 8000); // safety net if no cart event fires
+                btn.click();
             });
         }
 
