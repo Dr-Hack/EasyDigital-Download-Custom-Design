@@ -539,13 +539,13 @@ function caw_build_tabs( $id ) {
     }
     $vendor_html = caw_vendor_html( $id );
     if ( '' !== trim( $vendor_html ) ) {
-        $tabs[] = array( 'title' => __( 'Vendor Details', 'mayosis' ), 'html' => $vendor_html, 'key' => 'vendor' );
+        $tabs[] = array( 'title' => __( 'Vendor Details', 'mayosis' ), 'html' => $vendor_html, 'key' => 'vendor', 'meta' => true );
     }
     $info_html = caw_product_info_html( $id );
     if ( '' !== $fes_html ) {
         $info_html .= '<div class="caw-fes-fields">' . $fes_html . '</div>';
     }
-    $tabs[] = array( 'title' => __( 'Product Information', 'mayosis' ), 'html' => $info_html, 'info' => true );
+    $tabs[] = array( 'title' => __( 'Product Information', 'mayosis' ), 'html' => $info_html, 'info' => true, 'meta' => true );
 
     return $tabs;
 }

@@ -244,8 +244,9 @@ while ( have_posts() ) :
             <div class="caw-tabsection">
                 <div class="caw-tabs" role="tablist">
                     <?php foreach ( $tabs as $i => $t ) :
-                        $key   = isset( $t['key'] ) ? $t['key'] : 'tab' . $i;
-                        $extra = ! empty( $t['info'] ) ? ' caw-info' : '';
+                        $key    = isset( $t['key'] ) ? $t['key'] : 'tab' . $i;
+                        $extra  = ! empty( $t['info'] ) ? ' caw-info' : '';
+                        $extra .= ! empty( $t['meta'] ) ? ' caw-meta' : '';
                         ?>
                         <div class="caw-tab<?php echo 0 === $i ? ' caw-active' : ''; ?><?php echo esc_attr( $extra ); ?>"
                              id="caw-tabbtn-<?php echo esc_attr( $key ); ?>"
