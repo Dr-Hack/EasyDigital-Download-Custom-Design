@@ -4,6 +4,36 @@ A WordPress child theme for [Mayosis](https://themeforest.net/item/mayosis-digit
 
 ---
 
+## Screenshots
+
+### Single Product Page
+
+| Dark | Light |
+|---|---|
+| ![Single product page — dark mode](screenshots/single-product-dark.png) | ![Single product page — light mode](screenshots/single-product-light.png) |
+
+Two-column buy box with the adaptive **Plan × Duration** selector, live price, sales badge and crypto payment row.
+
+### Live Stock & Sold-Out Variants
+
+![Variable product with per-option stock](screenshots/variable-product-stock.png)
+
+Per-variation stock via the EDD Purchase Limit extension — available options are priced, sold-out options are greyed and labelled, and an **In Stock / Only N left / Out of Stock** badge drives the Buy button.
+
+### Home Page
+
+![Home page — dark mode](screenshots/home-dark.png)
+
+A fully dynamic marketplace home: hero with live AJAX search, crypto price ticker, stats band and best-selling grid.
+
+### Checkout
+
+![Two-column checkout](screenshots/checkout-dark.png)
+
+Two-column EDD blocks checkout with a sticky order summary, trust badges and an SSL note.
+
+---
+
 ## Part 1 — Single Product Page
 
 A modern, marketplace-style product page applied to **every** EDD download via a single `template_include` filter (no per-product setup, no parent-theme edits).
@@ -17,10 +47,11 @@ A modern, marketplace-style product page applied to **every** EDD download via a
   - **Plain price** when the product has a single price.
   - The duration axis auto-collapses when every option shares one duration.
 - **Live price + "Buy Now — $X"** — updates instantly as you choose; drives EDD's native cart so checkout is 100% standard.
+- **Live stock / availability** — when the **EDD Purchase Limit** extension is active, shows an **In Stock / Only N left / Out of Stock** badge. Supports **per-variation limits**: sold-out options are greyed, labelled "Sold out" and skipped, and the Buy button disables to "Out of Stock" when nothing is available. No badge is shown for products without a limit set.
 - **EDD Reviews rating** — star average under the title (links to the Reviews tab); shows "No ratings yet" when empty.
 - **TrustPilot strip** — official TrustPilot widget, theme-synced so it stays readable in dark mode.
 - **Crypto payment badge** — BTC / ETH / USDT icons in the buy box.
-- **"Want something else?"** — cross-category related-products grid for cross-sell, placed above the tabs.
+- **"You might also like"** — same-category related-products grid, placed above the tabs.
 - **Content tabs** — the product description is split into tabs automatically on each `<h2>` heading, followed by:
   - **Reviews** tab (EDD Reviews + login form), and
   - a distinct **Product Information** tab (dynamic EDD data + relocated FES vendor fields such as "Refund Supported").
@@ -121,6 +152,7 @@ Site-wide accent colour is unified to **`#1e73be`** (matching the product/checko
 | [Mayosis Theme](https://themeforest.net/item/mayosis-digital-marketplace-wordpress-theme/26568956) | Any recent |
 | [Easy Digital Downloads](https://easydigitaldownloads.com/) | 3.x+ (Blocks-based checkout) |
 | EDD Reviews *(optional)* | for the product rating + Reviews tab |
+| EDD Purchase Limit *(optional)* | for the "In Stock / Sold Out" badge + per-variation stock |
 | EDD Software Licensing *(optional)* | for the license renewal form styling |
 | EDD Frontend Submission (FES) *(optional)* | vendor fields shown in Product Information |
 
