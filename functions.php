@@ -664,3 +664,21 @@ function caw_stock_info( $id ) {
     $info['variable'] = false;
     return $info;
 }
+
+/* ---- Is a product fully sold out (every tier / the single price)? ---------
+   EDD core has no stock concept, and the Purchase Limit extension exposes no
+   query filter — sold-out is computed, so we filter listings in PHP. Returns
+   false when stock isn't tracked (plugin off, or unlimited = always buyable). */
+function caw_is_fully_sold_out( $id ) {
+    if ( ! function_exists( 'caw_stock_info' ) ) {
+        return false;
+    }
+    $s = caw_stock_info( $id );
+    if ( ! $s ) {
+        return false;
+    }
+    if ( ! empty( $s['variable'] ) ) {
+        return ! empty( $s['allSoldOut'] );
+    }
+    return ! empty( $s['tracked'] ) && ! empty( $s['soldOut'] );
+}

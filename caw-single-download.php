@@ -209,8 +209,24 @@ while ( have_posts() ) :
 
         <!-- RELATED PRODUCTS (same category, above tabs) -->
         <?php
-        $related = caw_related_products( $id, 4 );
-        if ( $related->have_posts() ) :
+        // Over-fetch then drop fully sold-out products, keeping up to 4. Collect
+        // IDs first so the whole section is skipped if nothing survives (no empty grid).
+        $related = caw_related_products( $id, 20 );
+        $rel_ids = array();
+        if ( $related->have_posts() ) {
+            while ( $related->have_posts() ) {
+                $related->the_post();
+                if ( caw_is_fully_sold_out( get_the_ID() ) ) {
+                    continue; // don't recommend sold-out products
+                }
+                $rel_ids[] = get_the_ID();
+                if ( count( $rel_ids ) >= 4 ) {
+                    break;
+                }
+            }
+            wp_reset_postdata();
+        }
+        if ( $rel_ids ) :
             ?>
             <div class="caw-related">
                 <div class="caw-related-head">
@@ -218,27 +234,22 @@ while ( have_posts() ) :
                     <a href="<?php echo esc_url( get_post_type_archive_link( 'download' ) ); ?>"><?php esc_html_e( 'Browse all products', 'mayosis' ); ?> &rarr;</a>
                 </div>
                 <div class="caw-relgrid">
-                    <?php
-                    while ( $related->have_posts() ) :
-                        $related->the_post();
-                        $rcat = get_the_terms( get_the_ID(), 'download_category' );
+                    <?php foreach ( $rel_ids as $rid ) :
+                        $rcat = get_the_terms( $rid, 'download_category' );
                         ?>
-                        <a class="caw-relcard" href="<?php the_permalink(); ?>">
+                        <a class="caw-relcard" href="<?php echo esc_url( get_permalink( $rid ) ); ?>">
                             <div class="caw-relimg">
-                                <?php if ( has_post_thumbnail() ) { the_post_thumbnail( 'medium' ); } ?>
+                                <?php if ( has_post_thumbnail( $rid ) ) { echo get_the_post_thumbnail( $rid, 'medium' ); } ?>
                             </div>
                             <div class="caw-relbody">
                                 <?php if ( $rcat && ! is_wp_error( $rcat ) ) : ?>
                                     <div class="caw-relcat"><?php echo esc_html( $rcat[0]->name ); ?></div>
                                 <?php endif; ?>
-                                <div class="caw-reltitle"><?php the_title(); ?></div>
-                                <div class="caw-relprice"><?php echo edd_price( get_the_ID(), false ); // phpcs:ignore ?></div>
+                                <div class="caw-reltitle"><?php echo esc_html( get_the_title( $rid ) ); ?></div>
+                                <div class="caw-relprice"><?php echo edd_price( $rid, false ); // phpcs:ignore ?></div>
                             </div>
                         </a>
-                        <?php
-                    endwhile;
-                    wp_reset_postdata();
-                    ?>
+                    <?php endforeach; ?>
                 </div>
             </div>
         <?php endif; ?>

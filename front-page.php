@@ -76,20 +76,21 @@ if ( ! function_exists( 'cawhome_product_card' ) ) {
 	}
 }
 
-/* Best selling */
+/* Best selling — over-fetch so we can skip fully sold-out products (EDD/Purchase
+   Limit has no query-level stock filter) and still fill 4 cards. */
 $cawh_best = new WP_Query( array(
 	'post_type'      => 'download',
-	'posts_per_page' => 4,
+	'posts_per_page' => 16,
 	'meta_key'       => '_edd_download_sales',
 	'orderby'        => 'meta_value_num',
 	'order'          => 'DESC',
 	'no_found_rows'  => true,
 ) );
 
-/* Newly listed */
+/* Newly listed — same over-fetch + sold-out skip. */
 $cawh_new = new WP_Query( array(
 	'post_type'      => 'download',
-	'posts_per_page' => 4,
+	'posts_per_page' => 16,
 	'orderby'        => 'date',
 	'order'          => 'DESC',
 	'no_found_rows'  => true,
@@ -197,10 +198,13 @@ $cawh_store_url = function_exists( 'edd_get_option' ) ? get_post_type_archive_li
 <section class="ch-sec"><div class="ch-wrap">
 	<div class="ch-sec-head"><h2>&#128293; Best Selling Products</h2><p>The most-loved crypto products &amp; services on the marketplace.</p></div>
 	<div class="ch-prod-grid">
-		<?php while ( $cawh_best->have_posts() ) : $cawh_best->the_post();
+		<?php $cawh_bshown = 0; while ( $cawh_best->have_posts() ) : $cawh_best->the_post();
+			if ( $cawh_bshown >= 4 ) break;
+			if ( caw_is_fully_sold_out( get_the_ID() ) ) continue; // don't feature sold-out products
 			$sales = function_exists( 'edd_get_download_sales_stats' ) ? edd_get_download_sales_stats( get_the_ID() ) : 0;
 			$flag  = $sales > 0 ? '<span class="ch-prod-fire">&#128293; ' . number_format( $sales ) . ' sold</span>' : '';
 			cawhome_product_card( get_the_ID(), $flag );
+			$cawh_bshown++;
 		endwhile; wp_reset_postdata(); ?>
 	</div>
 	<div class="ch-center"><a class="ch-btn ch-btn-ghost" href="<?php echo esc_url( $cawh_store_url ); ?>">View All Products <i class="fas fa-arrow-right"></i></a></div>
@@ -210,8 +214,11 @@ $cawh_store_url = function_exists( 'edd_get_option' ) ? get_post_type_archive_li
 <section class="ch-sec ch-pt0"><div class="ch-wrap">
 	<div class="ch-sec-head"><h2>&#127381; Newly Listed</h2><p>Fresh on the marketplace — be first to grab the latest drops.</p></div>
 	<div class="ch-prod-grid">
-		<?php while ( $cawh_new->have_posts() ) : $cawh_new->the_post();
+		<?php $cawh_nshown = 0; while ( $cawh_new->have_posts() ) : $cawh_new->the_post();
+			if ( $cawh_nshown >= 4 ) break;
+			if ( caw_is_fully_sold_out( get_the_ID() ) ) continue; // don't feature sold-out products
 			cawhome_product_card( get_the_ID(), '<span class="ch-prod-fire ch-new">NEW</span>' );
+			$cawh_nshown++;
 		endwhile; wp_reset_postdata(); ?>
 	</div>
 </div></section>
