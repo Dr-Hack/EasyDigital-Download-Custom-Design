@@ -347,10 +347,25 @@ function caw_get_price_model( $id ) {
             $map[ $plan . '|||' . $dur ] = $r['pid'];
         }
 
-        $model['two_axis']   = true;
-        $model['plans']      = $plans;
-        $model['durs']       = $durs;
-        $model['map']        = $map;
+        // Which plan/dur combo is EDD's "Set as default" price? Used to seed
+        // the initial selection (falls back to the first of each axis).
+        $default_plan = isset( $plans[0] ) ? $plans[0] : '';
+        $default_dur  = isset( $durs[0] ) ? $durs[0] : '';
+        foreach ( $map as $key => $pid ) {
+            if ( (int) $pid === (int) $model['default_pid'] ) {
+                $kp           = explode( '|||', $key );
+                $default_plan = $kp[0];
+                $default_dur  = isset( $kp[1] ) ? $kp[1] : '';
+                break;
+            }
+        }
+
+        $model['two_axis']     = true;
+        $model['plans']        = $plans;
+        $model['durs']         = $durs;
+        $model['map']          = $map;
+        $model['default_plan'] = $default_plan;
+        $model['default_dur']  = $default_dur;
         $model['dur_label']  = __( 'Duration', 'mayosis' );
         $model['plan_label'] = __( 'Plan', 'mayosis' );
         if ( ! $aDur && ! $bDur ) {

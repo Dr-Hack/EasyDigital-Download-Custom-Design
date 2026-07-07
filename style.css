@@ -806,7 +806,9 @@ body.sp-night-mode-on edd-cart-preview {
 .caw-relcard { border: 1px solid var(--caw-line); background: var(--caw-card); border-radius: 12px; overflow: hidden; transition: .15s; display: flex; flex-direction: column; }
 .caw-relcard:hover { border-color: var(--caw-accent2); transform: translateY(-2px); }
 .caw-relimg { aspect-ratio: 16/10; background: var(--caw-card); overflow: hidden; }
-.caw-relimg img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* !important + aspect-ratio/max-width guards: the Mayosis parent theme injects a
+   global `img { height:auto }` rule that otherwise defeats the crop-to-fill. */
+.caw-relimg img { width: 100%!important; height: 100%!important; object-fit: cover!important; object-position: center; display: block; max-width: none!important; aspect-ratio: auto!important; }
 .caw-relbody { padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
 .caw-relcat { font-size: 11px; color: var(--caw-muted); text-transform: uppercase; letter-spacing: .4px; }
 .caw-reltitle { font-size: 14px; font-weight: 600; line-height: 1.35; color: var(--caw-txt); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }

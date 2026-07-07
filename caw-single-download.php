@@ -87,8 +87,10 @@ while ( have_posts() ) :
                         <div class="caw-selblock">
                             <div class="caw-sellabel"><?php echo esc_html( $model['plan_label'] ); ?></div>
                             <div class="caw-plans">
-                                <?php foreach ( $model['plans'] as $i => $plan ) : ?>
-                                    <div class="caw-plan<?php echo 0 === $i ? ' caw-active' : ''; ?>" data-plan="<?php echo esc_attr( $plan ); ?>">
+                                <?php foreach ( $model['plans'] as $i => $plan ) :
+                                    $plan_active = isset( $model['default_plan'] ) ? ( $plan === $model['default_plan'] ) : ( 0 === $i );
+                                    ?>
+                                    <div class="caw-plan<?php echo $plan_active ? ' caw-active' : ''; ?>" data-plan="<?php echo esc_attr( $plan ); ?>">
                                         <div class="caw-pname"><?php echo esc_html( $plan ); ?></div>
                                     </div>
                                 <?php endforeach; ?>
@@ -100,8 +102,10 @@ while ( have_posts() ) :
                             <div class="caw-selblock">
                                 <div class="caw-sellabel"><?php echo esc_html( $model['dur_label'] ); ?></div>
                                 <div class="caw-durs">
-                                    <?php foreach ( $model['durs'] as $d ) : ?>
-                                        <div class="caw-dur" data-dur="<?php echo esc_attr( $d ); ?>"><?php echo esc_html( $d ); ?></div>
+                                    <?php foreach ( $model['durs'] as $i => $d ) :
+                                        $dur_active = isset( $model['default_dur'] ) ? ( $d === $model['default_dur'] ) : ( 0 === $i );
+                                        ?>
+                                        <div class="caw-dur<?php echo $dur_active ? ' caw-active' : ''; ?>" data-dur="<?php echo esc_attr( $d ); ?>"><?php echo esc_html( $d ); ?></div>
                                     <?php endforeach; ?>
                                 </div>
                             </div>
@@ -119,8 +123,9 @@ while ( have_posts() ) :
                                 <?php foreach ( $model['options'] as $i => $o ) :
                                     $os    = ( $stock && ! empty( $stock['variable'] ) && isset( $stock['options'][ $o['pid'] ] ) ) ? $stock['options'][ $o['pid'] ] : null;
                                     $o_out = $os && ! empty( $os['soldOut'] );
+                                    $o_active = isset( $model['default_pid'] ) ? ( (int) $o['pid'] === (int) $model['default_pid'] ) : ( 0 === $i );
                                     ?>
-                                    <div class="caw-opt<?php echo 0 === $i ? ' caw-active' : ''; ?><?php echo $o_out ? ' caw-soldout' : ''; ?>"
+                                    <div class="caw-opt<?php echo $o_active ? ' caw-active' : ''; ?><?php echo $o_out ? ' caw-soldout' : ''; ?>"
                                          data-pid="<?php echo (int) $o['pid']; ?>"<?php echo $o_out ? ' data-soldout="1"' : ''; ?>>
                                         <span class="caw-optname"><?php echo esc_html( $o['name'] ); ?></span>
                                         <span class="caw-optprice"><?php echo $o_out ? esc_html__( 'Sold out', 'mayosis' ) : esc_html( $model['pidPrice'][ $o['pid'] ] ); ?></span>
@@ -196,7 +201,7 @@ while ( have_posts() ) :
                             <span class="caw-coin caw-usdt" title="USDT">&#8366;</span>
                             <span class="caw-coin caw-bnb" title="BNB">B</span>
                         </span>
-                        <?php esc_html_e( 'BTC, ETH, USDT & 50+ more', 'mayosis' ); ?>
+                        <?php esc_html_e( 'BTC, ETH, USDT & more', 'mayosis' ); ?>
                     </div>
                 </div>
             </div><!-- /buybox -->
