@@ -19,6 +19,9 @@ add_action( 'wp_enqueue_scripts', 'mayosis_child_enqueue_styles' );
 // Common values: 'downloads', 'products', 'shop'
 define( 'EDD_SLUG', 'products' );
 
+// Cloudflare Turnstile — auth modal, wp-login.php and the FES vendor forms.
+require_once get_stylesheet_directory() . '/caw-turnstile.php';
+
 /* =============================================================================
    CHECKOUT — FORCE TWO-THIRDS LAYOUT
    Modifies the EDD checkout block's stored attrs before the render callback

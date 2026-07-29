@@ -1301,3 +1301,162 @@ body.sp-night-mode-on .cawhome .ch-chip{color:var(--ch-txt)!important}
 /* fire/NEW badges still sit *inside* the image <a>; pin their white text */
 body.sp-night-mode-on .cawhome .ch-prod-fire,
 body.sp-night-mode-on .cawhome .ch-prod-fire.ch-new{color:#fff!important}
+
+/* =============================================================================
+   MSV AUTH MODAL  —  layout repair + night mode
+   The modal ships with Mayosis (parent theme markup + mayosis-core CSS) and is
+   styled for a light page only. Two problems it has on this site:
+
+   1. LAYOUT (both modes). The parent theme's global `input[type=text]` rule in
+      css/main.css (padding:13px 20px; margin-bottom:15px; max-height:50px;
+      border:2px) has the same specificity as the modal's own `.msv-field input`
+      and loads AFTER it, so it wins — the left padding that made room for the
+      field icon is lost and the icon lands on top of the placeholder text.
+      Re-asserted below at .msv-auth-modal .msv-field input (one class deeper).
+
+   2. NIGHT MODE. The dialog is hard-coded #fff while sp-night-mode repaints the
+      inputs dark, so dark fields sat on a white card and the tab labels,
+      "Remember me" and "Forgot password?" were near-invisible. Palette matches
+      the checkout block above: card #192237, sunken #141b2b, border #2b3a5c.
+   ============================================================================= */
+
+/* ── 1. Layout repair (applies in both light and dark) ───────────────────── */
+.msv-auth-modal .msv-field input[type="text"],
+.msv-auth-modal .msv-field input[type="email"],
+.msv-auth-modal .msv-field input[type="password"] {
+    padding: 12px 14px 12px 42px;
+    margin-bottom: 0;
+    max-height: none;
+    min-height: 46px;
+    border-width: 1.5px;
+    border-radius: 11px;
+    line-height: 1.4;
+}
+.msv-auth-modal .msv-field--pw input[type="password"],
+.msv-auth-modal .msv-field--pw input[type="text"] {
+    padding-right: 44px;
+}
+/* the theme's 2px focus reset would flatten the modal's focus ring */
+.msv-auth-modal .msv-field input:focus {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color, #1e73be) 18%, transparent);
+}
+
+/* ── 2. Night mode ───────────────────────────────────────────────────────────
+   !important throughout, deliberately: sp-night-mode emits a blanket
+   `body.sp-night-mode-on * { color: #f2f2f2 !important }` plus !important
+   input backgrounds, which no amount of specificity can outrank.
+   ─────────────────────────────────────────────────────────────────────────── */
+body.sp-night-mode-on .msv-auth-modal__dialog {
+    background: #192237 !important;
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55), 0 4px 16px rgba(0, 0, 0, 0.35) !important;
+}
+body.sp-night-mode-on .msv-auth-modal__overlay {
+    background: rgba(6, 9, 18, 0.72) !important;
+}
+
+/* Tab bar — the white "ink" pill and grey labels both vanished on dark */
+body.sp-night-mode-on .msv-auth-tabs {
+    background: #141b2b !important;
+}
+body.sp-night-mode-on .msv-auth-tabs__item {
+    color: #93a1b8 !important;
+}
+body.sp-night-mode-on .msv-auth-tabs__item.is-active {
+    color: #ffffff !important;
+}
+body.sp-night-mode-on .msv-auth-tabs__ink {
+    background: #28375a !important;
+    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.35) !important;
+}
+
+/* Fields */
+body.sp-night-mode-on .msv-auth-modal .msv-field input[type="text"],
+body.sp-night-mode-on .msv-auth-modal .msv-field input[type="email"],
+body.sp-night-mode-on .msv-auth-modal .msv-field input[type="password"] {
+    background: #141b2b !important;
+    border-color: #2b3a5c !important;
+    color: #f2f2f2 !important;
+}
+body.sp-night-mode-on .msv-auth-modal .msv-field input::placeholder {
+    color: #7d8ba5 !important;
+    opacity: 1;
+}
+body.sp-night-mode-on .msv-auth-modal .msv-field input:focus {
+    background: #10182a !important;
+    border-color: var(--primary-color, #1e73be) !important;
+}
+body.sp-night-mode-on .msv-auth-modal .msv-field input.is-valid { border-color: #10b981 !important; }
+body.sp-night-mode-on .msv-auth-modal .msv-field input.is-error { border-color: #ef4444 !important; }
+body.sp-night-mode-on .msv-field__icon,
+body.sp-night-mode-on .msv-field__icon svg { color: #7d8ba5 !important; }
+body.sp-night-mode-on .msv-field:focus-within .msv-field__icon,
+body.sp-night-mode-on .msv-field:focus-within .msv-field__icon svg { color: #4a9fe0 !important; }
+body.sp-night-mode-on .msv-field__toggle-pw,
+body.sp-night-mode-on .msv-field__toggle-pw svg { color: #7d8ba5 !important; }
+body.sp-night-mode-on .msv-field__toggle-pw:hover,
+body.sp-night-mode-on .msv-field__toggle-pw:hover svg { color: #dfe6f2 !important; }
+
+/* Options row — "Remember me" was dark grey on a dark card */
+body.sp-night-mode-on .msv-auth-check { color: #cdd6e4 !important; }
+body.sp-night-mode-on .msv-auth-check input[type="checkbox"] {
+    accent-color: var(--primary-color, #1e73be);
+    background: #141b2b !important;
+}
+body.sp-night-mode-on .msv-forgot-trigger,
+body.sp-night-mode-on .msv-auth-back,
+body.sp-night-mode-on .msv-auth-back svg,
+body.sp-night-mode-on .msv-auth-footer a { color: #4a9fe0 !important; }
+
+/* Password strength meter */
+body.sp-night-mode-on .msv-pw-strength__bar { background: #2b3a5c !important; }
+body.sp-night-mode-on .msv-pw-strength__bar.is-filled.strength-1 { background: #ef4444 !important; }
+body.sp-night-mode-on .msv-pw-strength__bar.is-filled.strength-2 { background: #f59e0b !important; }
+body.sp-night-mode-on .msv-pw-strength__bar.is-filled.strength-3 { background: #10b981 !important; }
+body.sp-night-mode-on .msv-pw-strength__bar.is-filled.strength-4 { background: #34d399 !important; }
+body.sp-night-mode-on .msv-pw-strength__label { color: #93a1b8 !important; }
+
+/* Forgot-password overlay — hard-coded #fff in the parent template's <style> */
+body.sp-night-mode-on .msv-auth-forgot-overlay { background: #192237 !important; }
+body.sp-night-mode-on .msv-auth-panel__intro h3 { color: #ffffff !important; }
+body.sp-night-mode-on .msv-auth-panel__intro p { color: #93a1b8 !important; }
+body.sp-night-mode-on .msv-auth-panel__intro-icon {
+    background: rgba(30, 115, 190, 0.16) !important;
+}
+body.sp-night-mode-on .msv-auth-panel__intro-icon svg { color: #4a9fe0 !important; }
+
+/* Social-login divider */
+body.sp-night-mode-on .msv-auth-divider { color: #8c99b0 !important; }
+body.sp-night-mode-on .msv-auth-divider::before,
+body.sp-night-mode-on .msv-auth-divider::after { background: #2b3a5c !important; }
+body.sp-night-mode-on .msv-auth-footer { color: #93a1b8 !important; }
+
+/* Messages — the light tinted panels glared on the dark card */
+body.sp-night-mode-on .msv-auth-msg.is-error {
+    background: rgba(239, 68, 68, 0.12) !important;
+    color: #fca5a5 !important;
+    border-color: rgba(239, 68, 68, 0.32) !important;
+}
+body.sp-night-mode-on .msv-auth-msg.is-error svg { color: #ef4444 !important; }
+body.sp-night-mode-on .msv-auth-msg.is-success {
+    background: rgba(16, 185, 129, 0.12) !important;
+    color: #6ee7b7 !important;
+    border-color: rgba(16, 185, 129, 0.30) !important;
+}
+body.sp-night-mode-on .msv-auth-msg.is-success svg { color: #10b981 !important; }
+
+/* Submit button — the blanket `*` colour rule repaints the label */
+body.sp-night-mode-on .msv-auth-btn,
+body.sp-night-mode-on .msv-auth-btn .msv-auth-btn__text,
+body.sp-night-mode-on .msv-auth-btn svg { color: #ffffff !important; }
+
+/* =============================================================================
+   CLOUDFLARE TURNSTILE
+   Widgets render with appearance:interaction-only inside the modal, so this is
+   normally a zero-height slot; it only takes space when Cloudflare decides the
+   visitor has to interact.
+   ============================================================================= */
+.caw-turnstile { margin: 0 0 14px; }
+.caw-turnstile:empty { margin: 0; }
+.caw-turnstile iframe { max-width: 100%; }
+.caw-turnstile--modal { margin: 2px 0 12px; }
+.caw-turnstile--modal:empty { margin: 0; }

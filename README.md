@@ -1,6 +1,6 @@
-# Mayosis Child — EDD Home, Product & Checkout
+# Mayosis Child — EDD Home, Product, Checkout & Auth
 
-A WordPress child theme for [Mayosis](https://themeforest.net/item/mayosis-digital-marketplace-wordpress-theme/26568956) that replaces the default Easy Digital Downloads **home page**, **single product** page and **checkout** with a polished, conversion-focused design — without touching the parent theme. Verified on **Mayosis 6.0**.
+A WordPress child theme for [Mayosis](https://themeforest.net/item/mayosis-digital-marketplace-wordpress-theme/26568956) that replaces the default Easy Digital Downloads **home page**, **single product** page and **checkout** with a polished, conversion-focused design, and adds **Cloudflare Turnstile** protection plus a dark-mode fix to the theme's **login/registration popup** — without touching the parent theme. Verified on **Mayosis 6.0**.
 
 ---
 
@@ -135,6 +135,47 @@ A bespoke, fully dynamic marketplace home page that replaces the old page-builde
 
 ---
 
+## Part 4 — Login Popup & Cloudflare Turnstile
+
+Recent Mayosis versions ship an AJAX login/register/forgot-password popup (`#msv-auth-modal`, rendered by the parent theme's `header-account.php`). It arrives styled for a light page only and with no bot protection. This part fixes both.
+
+### Features
+
+- **Night-mode popup** — dark card, readable tab bar, fields, "Remember me", forgot-password link, strength meter, divider and alert messages, all matching the checkout/product palette.
+- **Field layout repair** — restores the left padding the parent theme's global `input` rule was overriding, which made the field icons sit on top of the placeholder text (visible in light mode too).
+- **Cloudflare Turnstile** on every logged-out form:
+  - the popup's **login**, **register** and **forgot password** forms,
+  - **wp-login.php** login, register and lost-password,
+  - **EDD FES** vendor login, registration and vendor-contact forms.
+- **Invisible by default** — the popup uses `appearance: interaction-only`, so visitors see nothing unless Cloudflare decides a challenge is warranted. wp-login and FES show a standard widget.
+- **Theme-aware widget** — renders in Turnstile's dark or light theme based on the site's night-mode cookie.
+- **Admin screen** — Settings → Cloudflare Turnstile, or `wp-config.php` constants (which take priority and keep the secret out of the database).
+- **Replaces reCAPTCHA** — the FES reCAPTCHA field is force-excluded site-wide. EDD Pro (3.6.1+), MailPoet and Contact Form 7 have their own native Turnstile support and are configured from their own settings screens.
+
+### How It Works
+
+The popup's markup lives in the parent theme and exposes **no hooks inside its forms**, and its JavaScript posts a hand-built field list rather than serialising the form — so a hidden input added to the DOM would be silently dropped. The integration works around both:
+
+- The three widgets are **mounted client-side** by `js/caw-turnstile.js`.
+- The token is attached with a **`$.ajaxPrefilter`** that appends it to the outgoing query string.
+- A **capture-phase `submit` listener** on the modal runs ahead of the theme's own delegated handler and holds the submit back (showing "Verifying…" on the button) until a token exists, then re-fires it.
+- Server-side, the `wp_ajax_nopriv_mayosis_mbw_lrb_ajax_*` actions are hooked at **priority 1** — ahead of the theme's handlers — and answer in the JSON shape the popup's JavaScript expects.
+- `wp-login.php` is guarded via `authenticate`, `registration_errors` and `lostpassword_post`. The `authenticate` check deliberately does **not** defer to an existing credential error: otherwise a bot could grind passwords without ever meeting the captcha, since core reports "wrong password" first.
+- Verification results are **memoised per token**. Turnstile tokens are single-use, so a request that passes through two guards must not spend its token twice.
+- A transport failure (Cloudflare unreachable) is treated as a **pass**; an explicit `success: false` always fails. Failing closed on a network blip would lock every customer out of login and checkout. Override with the `caw_turnstile_fail_open` filter.
+- Dark-mode CSS uses `!important` throughout — `sp-night-mode` emits a blanket `body.sp-night-mode-on * { color: … !important }` that no amount of specificity can outrank.
+
+### Filters
+
+| Filter | Purpose |
+|---|---|
+| `caw_turnstile_enabled` | Disable Turnstile for one form (`$context`, e.g. `msv_login`, `wp_register`, `fes_login`) |
+| `caw_turnstile_widget_args` | Override `appearance` / `size` per context |
+| `caw_turnstile_fail_open` | Fail closed instead of open when Cloudflare is unreachable |
+| `caw_turnstile_error_message` | Change the failure message |
+
+---
+
 ## Global Palette
 
 Site-wide accent colour is unified to **`#1e73be`** (matching the product/checkout pages). This is set in the **theme Customizer**, not in this repo, since Mayosis stores it as a theme mod:
@@ -154,7 +195,8 @@ Site-wide accent colour is unified to **`#1e73be`** (matching the product/checko
 | EDD Reviews *(optional)* | for the product rating + Reviews tab |
 | EDD Purchase Limit *(optional)* | for the "In Stock / Sold Out" badge + per-variation stock |
 | EDD Software Licensing *(optional)* | for the license renewal form styling |
-| EDD Frontend Submission (FES) *(optional)* | vendor fields shown in Product Information |
+| EDD Frontend Submission (FES) *(optional)* | vendor fields shown in Product Information; Turnstile on the vendor forms |
+| [Cloudflare Turnstile](https://dash.cloudflare.com/?to=/:account/turnstile) *(optional)* | free; site + secret key for the login popup and wp-login.php |
 
 ## Installation
 
@@ -186,6 +228,29 @@ Edit the strings in `caw_checkout_inline_js()` in `functions.php`:
 'Crypto & card payments accepted'
 ```
 
+### Cloudflare Turnstile
+
+Create a widget in the [Cloudflare dashboard](https://dash.cloudflare.com/?to=/:account/turnstile), add your domain(s) to its hostname list, then either paste the keys into **Settings → Cloudflare Turnstile**, or — preferred — define them in `wp-config.php`, which takes priority and keeps the secret out of the database:
+
+```php
+define( 'CAW_TURNSTILE_SITE_KEY',   '0x4AAAA…' );
+define( 'CAW_TURNSTILE_SECRET_KEY', '0x4AAAA…' );
+```
+
+With either key missing, Turnstile no-ops entirely — a half-configured site gets no captcha rather than a locked-out login.
+
+For local development use Cloudflare's public test keys (`1x00000000000000000000AA` / `1x0000000000000000000000000000000AA`); real widgets are hostname-locked and will error on a `.local` domain.
+
+**Other plugins keep their own keys** — each reads its own settings and none can be fed from `wp-config.php`:
+
+| Plugin | Where |
+|---|---|
+| EDD Pro | Downloads → Settings → Misc → Captcha (select *Cloudflare Turnstile*) |
+| MailPoet | Settings → Advanced → CAPTCHA |
+| Contact Form 7 | Contact → Integration → Turnstile |
+
+> **If MailPoet is active**, turn **off** MailPoet → Settings → Advanced → *Protect registration forms*. MailPoet validates `registration_errors` with its own call to Cloudflare, and Turnstile tokens are single-use — leaving it on means the second call fails and wp-login.php registration breaks for everyone.
+
 ### Dark Mode Colours
 
 Sourced from the Mayosis Customizer (**Appearance → Customize → Dark Mode**); the child theme matches them under `body.sp-night-mode-on`.
@@ -195,14 +260,20 @@ Sourced from the Mayosis Customizer (**Appearance → Customize → Dark Mode**)
 | File | Purpose |
 |---|---|
 | `functions.php` | All PHP hooks/helpers — home + single-product template routing, price model, tabs, reviews, related products, TrustPilot, checkout enhancements |
-| `style.css` | All CSS — home (`.cawhome`) + product page + checkout, light/dark, responsive |
+| `style.css` | All CSS — home (`.cawhome`) + product page + checkout + auth popup, light/dark, responsive |
 | `front-page.php` | Custom dynamic home page (routed via `template_include`) |
 | `caw-single-download.php` | Custom single-product template (routed via `template_include`) |
 | `checkout-template.php` | Full-width page template for the checkout page |
+| `caw-turnstile.php` | Cloudflare Turnstile — widget rendering, verification, form guards, settings screen |
+| `js/caw-turnstile.js` | Mounts the Turnstile widgets and carries the token through the popup's AJAX |
 
 ## Rollback
 
-Remove the `caw_force_single_product_template` filter (or delete `caw-single-download.php`) to instantly restore the original product layout. The checkout and product enhancements are independent.
+Each part is independent:
+
+- **Product page** — remove the `caw_force_single_product_template` filter, or delete `caw-single-download.php`.
+- **Home page** — remove the `caw_force_front_page_template` filter, or delete `front-page.php`.
+- **Turnstile** — clear the keys (Settings → Cloudflare Turnstile, or the `wp-config.php` constants) and every guard no-ops. To remove it completely, drop the `require_once` for `caw-turnstile.php` from `functions.php`. The popup's dark-mode fix lives in `style.css` and is unaffected either way.
 
 ## License
 
