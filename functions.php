@@ -64,6 +64,85 @@ function caw_social_login_buttons( $atts = array() ) {
 		. '</div>';
 }
 
+/* =============================================================================
+   POPUP REGISTRATION — require a verified email address
+   ============================================================================= */
+
+add_action( 'wp_ajax_nopriv_mayosis_mbw_lrb_ajax_register', 'caw_verified_popup_registration', 2 );
+/**
+ * Replace the popup's registration handler with WordPress core's.
+ *
+ * The theme's own handler (mayosis-ajax-auth.php, priority 10) takes a
+ * user-chosen password, calls wp_insert_user() and then wp_set_auth_cookie() —
+ * signing the visitor straight in — and notifies only the admin. Nothing ever
+ * proves the address belongs to them, so anything typed into the email field
+ * becomes an account. That was the same weakness as the old /register/ page.
+ *
+ * core's register_new_user() instead generates the password itself
+ * (wp_generate_password) and fires the `register_new_user` action, which core
+ * hooks wp_send_new_user_notifications() onto with $notify = 'both' — so the
+ * registrant is emailed a set-password link and the account is unusable until
+ * they follow it. Same guarantee as wp-login.php?action=register.
+ *
+ * Runs at priority 2: after the Turnstile guard at 1, before the theme's
+ * handler at 10. wp_send_json() exits, so the theme's handler never runs.
+ *
+ * Turnstile's own `registration_errors` check (which register_new_user fires)
+ * no-ops here — it is scoped to real wp-login.php posts, and this is
+ * admin-ajax.php — so the token is checked once, not twice.
+ */
+function caw_verified_popup_registration() {
+	if ( ! check_ajax_referer( 'mayosis_mbw_lrb_ajax_register_nonce', 'security', false ) ) {
+		wp_send_json(
+			array(
+				'registered' => false,
+				'message'    => __( 'Security check failed. Please refresh the page and try again.', 'mayosis-child' ),
+			)
+		);
+	}
+
+	if ( ! get_option( 'users_can_register' ) ) {
+		wp_send_json(
+			array(
+				'registered' => false,
+				'message'    => __( 'New registrations are currently disabled.', 'mayosis-child' ),
+			)
+		);
+	}
+
+	$username = isset( $_POST['username'] ) ? sanitize_user( wp_unslash( $_POST['username'] ) ) : '';
+	$email    = isset( $_POST['email'] ) ? sanitize_email( wp_unslash( $_POST['email'] ) ) : '';
+
+	/* register_new_user() does the rest of the validation itself: empty fields,
+	   illegal characters, existing username, existing or malformed email. */
+	$user_id = register_new_user( $username, $email );
+
+	if ( is_wp_error( $user_id ) ) {
+		wp_send_json(
+			array(
+				'registered' => false,
+				/* Core's messages carry markup ("<strong>Error:</strong> …", a
+				   login link); the popup renders into textContent. */
+				'message'    => wp_strip_all_tags( $user_id->get_error_message() ),
+			)
+		);
+	}
+
+	wp_send_json(
+		array(
+			'registered' => true,
+			'message'    => __( 'Account created — check your email for a link to set your password.', 'mayosis-child' ),
+			/* The popup's JS always navigates ~1.2s after a success, so send it
+			   somewhere that repeats the instruction rather than reloading the
+			   page and losing it. This is core's own post-registration screen
+			   ("Registration complete. Please check your email…").
+			   site_url(), not wp_login_url(), so EDD's login_url filter can't
+			   redirect it to a page that has no such message. */
+			'redirect'   => site_url( 'wp-login.php?checkemail=registered', 'login' ),
+		)
+	);
+}
+
 add_action( 'wp_enqueue_scripts', 'caw_dedupe_auth_modal', 20 );
 /**
  * Keep exactly one auth popup, and move it somewhere it can actually be seen.
@@ -129,6 +208,33 @@ function caw_dedupe_auth_modal() {
 		. 'if(window.MutationObserver){new MutationObserver(fit).observe(pans,'
 		. '{subtree:true,attributes:true,attributeFilter:["class"]});}'
 		. 'window.addEventListener("resize",fit);setTimeout(fit,60);}());',
+		'after'
+	);
+
+	/**
+	 * Take the password fields out of the register panel.
+	 *
+	 * caw_verified_popup_registration() hands registration to core, which
+	 * generates the password and emails a set-password link — so asking for one
+	 * here would be collecting a value that gets thrown away. Removed from the
+	 * DOM rather than hidden with CSS: a hidden pair invites a password manager
+	 * to fill one field and not the other, and the theme's script refuses to
+	 * submit when the two don't match.
+	 *
+	 * The login panel's password field is untouched.
+	 */
+	wp_add_inline_script(
+		'msv-ajax-auth',
+		'(function(){'
+		. 'var f=document.getElementById("mayosis_mbw_lrb_register_form");if(!f){return;}'
+		. 'var ids=["mayosis_mbw_lrb_register_password","mayosis_mbw_lrb_register_confirm_password"];'
+		. 'for(var i=0;i<ids.length;i++){var el=document.getElementById(ids[i]);'
+		. 'if(el){var w=el.closest(".msv-field");if(w&&w.parentNode){w.parentNode.removeChild(w);}}}'
+		. 'var s=f.querySelector(".msv-pw-strength");if(s&&s.parentNode){s.parentNode.removeChild(s);}'
+		. 'var note=document.createElement("p");note.className="caw-reg-note";'
+		. 'note.textContent=' . wp_json_encode( __( 'We’ll email you a link to choose your password.', 'mayosis-child' ) ) . ';'
+		. 'var btn=f.querySelector(".msv-auth-btn");if(btn){f.insertBefore(note,btn);}'
+		. '}());',
 		'after'
 	);
 }

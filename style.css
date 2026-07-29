@@ -1676,3 +1676,13 @@ body.sp-night-mode-on .wp-block-edd-login .wp-generate-pw:hover {
     background: #3a4c78 !important;
     border-color: #7d8ba5 !important;
 }
+
+/* Register panel note — core emails a set-password link, so the popup no longer
+   asks for a password (see caw_verified_popup_registration). */
+.msv-auth-modal .caw-reg-note {
+    margin: 2px 0 14px;
+    font-size: 12.5px;
+    line-height: 1.45;
+    color: #6b7280;
+}
+body.sp-night-mode-on .msv-auth-modal .caw-reg-note { color: #93a1b8 !important; }
