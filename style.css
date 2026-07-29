@@ -1693,3 +1693,8 @@ body.sp-night-mode-on .msv-auth-modal .caw-reg-note { color: #93a1b8 !important;
 .caw-lost-password a { text-decoration: none; }
 .caw-lost-password a:hover { text-decoration: underline; }
 body.sp-night-mode-on .caw-lost-password a { color: #4a9fe0 !important; }
+
+/* Checkout social buttons sit inside the login fieldset (see
+   caw_checkout_social_login) — keep them the width of the form fields. */
+#edd_login_fields .caw-social-divider { margin: 18px 0 12px; }
+#edd_login_fields .caw-social-login .nsl-container { text-align: left; }
