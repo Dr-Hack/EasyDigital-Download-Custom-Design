@@ -1321,6 +1321,20 @@ body.sp-night-mode-on .cawhome .ch-prod-fire.ch-new{color:#fff!important}
    ============================================================================= */
 
 /* ── 1. Layout repair (applies in both light and dark) ───────────────────── */
+
+/* THE BIG ONE. `header-account.php` emits the modal inside the header markup,
+   so the whole dialog inherits the navbar's `line-height: 80px`. Every element
+   that doesn't declare its own gets an 80px line box: the field wrappers, the
+   options row, the divider and the header subtitle all measured 78px tall for
+   16-45px of content — roughly 250px of dead height, which is what pushed the
+   dialog past the viewport once the social buttons were added.
+   An inherited value loses to any declared one, so this needs no !important. */
+.msv-auth-modal,
+.msv-auth-modal .msv-auth-panel,
+.msv-auth-modal .msv-auth-forgot-overlay {
+    line-height: 1.5;
+}
+
 .msv-auth-modal .msv-field input[type="text"],
 .msv-auth-modal .msv-field input[type="email"],
 .msv-auth-modal .msv-field input[type="password"] {
@@ -1339,6 +1353,74 @@ body.sp-night-mode-on .cawhome .ch-prod-fire.ch-new{color:#fff!important}
 /* the theme's 2px focus reset would flatten the modal's focus ring */
 .msv-auth-modal .msv-field input:focus {
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color, #1e73be) 18%, transparent);
+}
+
+/* ── 1b. Fit any viewport ────────────────────────────────────────────────────
+   The dialog has no height cap of its own, so on a short window — or simply
+   with a third social provider enabled — it grew taller than the screen and got
+   clipped at BOTH ends (the modal is flex-centred, so overflow splits above and
+   below and the close button becomes unreachable).
+   Cap the dialog and let the panel area scroll instead: the header, tab bar and
+   close button stay put, and only the form scrolls. `min-height:0` is required
+   or the flex child refuses to shrink below its content.
+   ─────────────────────────────────────────────────────────────────────────── */
+.msv-auth-modal__dialog {
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100vh - 32px);
+    max-height: calc(100dvh - 32px); /* dvh: excludes mobile browser chrome */
+}
+.msv-auth-modal__header,
+.msv-auth-tabs {
+    flex: 0 0 auto;
+}
+.msv-auth-panels {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+/* slim scrollbar so the scroll area doesn't jar against the card */
+.msv-auth-panels::-webkit-scrollbar { width: 6px; }
+.msv-auth-panels::-webkit-scrollbar-thumb {
+    background: rgba(125, 139, 165, 0.45);
+    border-radius: 3px;
+}
+body.sp-night-mode-on .msv-auth-panels::-webkit-scrollbar-thumb {
+    background: rgba(125, 139, 165, 0.55);
+}
+
+/* Short viewports (laptops at 768px, landscape phones): trim the chrome so the
+   form itself keeps as much room as possible before scrolling kicks in. */
+@media (max-height: 800px) {
+    .msv-auth-modal__header { padding: 18px 28px 15px; }
+    .msv-auth-modal__header-title { font-size: 19px; }
+    .msv-auth-tabs { margin-top: 14px; }
+    .msv-auth-panel { padding: 16px 24px 20px; }
+    .msv-auth-modal .msv-field { margin-bottom: 11px; }
+    .msv-auth-options { margin-bottom: 14px; }
+    .msv-auth-divider { margin: 14px 0 10px; }
+}
+@media (max-height: 640px) {
+    .msv-auth-modal__header { padding: 14px 24px 12px; }
+    .msv-auth-modal__logo { display: none; } /* title alone still identifies the site */
+    .msv-auth-modal__header-sub { display: none; }
+}
+
+/* Mobile bottom-sheet: keep the same cap, minus the smaller outer padding. */
+@media (max-width: 480px) {
+    .msv-auth-modal__dialog {
+        max-height: calc(100vh - 24px);
+        max-height: calc(100dvh - 24px);
+    }
+}
+
+/* Social buttons: Nextend pads its own wrapper, which stacks with the divider's
+   margin and reads as a gap in an already tall dialog. */
+.msv-auth-modal .caw-social-login { margin-top: 0; }
+.msv-auth-modal .caw-social-login .nsl-container-buttons {
+    padding: 0 !important;
+    gap: 8px;
 }
 
 /* ── 2. Night mode ───────────────────────────────────────────────────────────

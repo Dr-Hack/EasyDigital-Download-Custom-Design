@@ -66,23 +66,26 @@ function caw_social_login_buttons( $atts = array() ) {
 
 add_action( 'wp_enqueue_scripts', 'caw_dedupe_auth_modal', 20 );
 /**
- * Drop duplicate copies of the auth popup.
+ * Keep exactly one auth popup, and move it somewhere it can actually be seen.
  *
  * `mayosis_header_elements()` renders `header-account.php` once per header
  * region configured with the "account" element, and that template emits the
  * entire `#msv-auth-modal` every time — so this site's header produces two
- * identical modals: duplicate element IDs, two sets of social buttons, and a
- * second set of login/register/forgot forms.
+ * identical modals: duplicate element IDs, two sets of social buttons, and two
+ * sets of login/register/forgot forms.
  *
- * Both the theme's own script and ours resolve `#msv-auth-modal` and the form
- * IDs via getElementById, which returns only the first match. The second modal
- * is therefore inert — but its forms would never receive a Turnstile widget, so
- * if anything ever surfaced it instead, submitting would produce no token and
- * the server-side guard would reject every attempt. Removing it keeps one
- * source of truth.
+ * Worse, the first copy sits inside the desktop-only header wrapper
+ * (`.d-none.d-lg-block`). Both the theme's own script and ours resolve
+ * `#msv-auth-modal` with getElementById semantics — first match wins — so below
+ * the `lg` breakpoint the popup that gets opened is the one inside a
+ * `display:none` ancestor, and tapping Login appears to do nothing at all.
  *
- * Injected immediately before the theme's own auth script so the extra copies
- * are gone before anything binds to them.
+ * Relocating the survivor to <body> fixes that for every breakpoint at once. It
+ * also takes the dialog out of the sticky header, whose transforms would
+ * otherwise become the containing block for its `position:fixed` overlay.
+ *
+ * Injected immediately before the theme's own auth script, so the move is done
+ * before anything binds.
  */
 function caw_dedupe_auth_modal() {
 	if ( is_user_logged_in() || ! wp_script_is( 'msv-ajax-auth', 'enqueued' ) ) {
@@ -91,8 +94,9 @@ function caw_dedupe_auth_modal() {
 
 	wp_add_inline_script(
 		'msv-ajax-auth',
-		'(function(){var m=document.querySelectorAll("#msv-auth-modal");'
-		. 'for(var i=m.length-1;i>0;i--){m[i].parentNode.removeChild(m[i]);}}());',
+		'(function(){var m=document.querySelectorAll("#msv-auth-modal");if(!m.length){return;}'
+		. 'for(var i=m.length-1;i>0;i--){m[i].parentNode.removeChild(m[i]);}'
+		. 'document.body.appendChild(m[0]);}());',
 		'before'
 	);
 }
