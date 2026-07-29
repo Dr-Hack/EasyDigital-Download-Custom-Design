@@ -1387,8 +1387,21 @@ body.sp-night-mode-on .cawhome .ch-prod-fire.ch-new{color:#fff!important}
    from feeding its own measurements back into a loop. */
 .msv-auth-panels__track {
     align-items: flex-start;
-    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-                height 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* The off-screen panel is still a child of the track, so once the track is
+   sized to the shorter panel the taller one overflows it — and the scroll
+   container above counts that overflow, putting a scrollbar on a card that
+   visibly has room to spare. Clip the inactive panel to the track height so it
+   contributes nothing; the active one stays unclipped so it can still grow
+   (a Turnstile challenge, an error message) and be seen by the ResizeObserver. */
+.msv-auth-panel {
+    max-height: 100%;
+    overflow: hidden;
+}
+.msv-auth-panel.is-active {
+    max-height: none;
+    overflow: visible;
 }
 /* slim scrollbar so the scroll area doesn't jar against the card */
 .msv-auth-panels::-webkit-scrollbar { width: 6px; }
