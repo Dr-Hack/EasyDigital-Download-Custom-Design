@@ -251,6 +251,12 @@ For local development use Cloudflare's public test keys (`1x00000000000000000000
 
 > **If MailPoet is active**, turn **off** MailPoet → Settings → Advanced → *Protect registration forms*. MailPoet validates `registration_errors` with its own call to Cloudflare, and Turnstile tokens are single-use — leaving it on means the second call fails and wp-login.php registration breaks for everyone.
 
+### Migrating off reCAPTCHA
+
+This theme suppresses the FES reCAPTCHA field, but FES will keep trying to validate a Google token that is no longer being submitted. Clear it at **Downloads → Settings → FES → Integrations**: empty both key fields, and untick *reCAPTCHA on the login form* and *reCAPTCHA on the vendor contact form*.
+
+To confirm nothing is left, load each logged-out page and check that `google.com/recaptcha` appears nowhere in the source: the home page, `wp-login.php` (plus `?action=register` and `?action=lostpassword`), the vendor dashboard, checkout and any contact page.
+
 ### Dark Mode Colours
 
 Sourced from the Mayosis Customizer (**Appearance → Customize → Dark Mode**); the child theme matches them under `body.sp-night-mode-on`.
