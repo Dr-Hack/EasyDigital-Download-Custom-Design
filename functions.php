@@ -99,6 +99,38 @@ function caw_dedupe_auth_modal() {
 		. 'document.body.appendChild(m[0]);}());',
 		'before'
 	);
+
+	/**
+	 * Size the sliding panel track to whichever panel is showing.
+	 *
+	 * The two panels are flex items in one track, so the track is always as tall
+	 * as the TALLER of them — the login panel (397px) renders inside a box sized
+	 * for the register panel (505px), leaving ~110px of empty card below the
+	 * social buttons. Harmless slack on desktop; on the mobile bottom sheet it
+	 * reads as the dialog failing to close.
+	 *
+	 * Runs after the theme's script so `.is-active` is already being managed.
+	 * A ResizeObserver covers content that changes height later — a Turnstile
+	 * challenge appearing, an error message, the password strength meter.
+	 */
+	wp_add_inline_script(
+		'msv-ajax-auth',
+		'(function(){'
+		. 'var m=document.getElementById("msv-auth-modal");if(!m){return;}'
+		. 'var pans=m.querySelector(".msv-auth-panels"),track=m.querySelector(".msv-auth-panels__track");'
+		. 'if(!pans||!track){return;}'
+		. 'function fit(){'
+		. 'var ov=pans.querySelector(".msv-auth-forgot-overlay.is-open");'
+		. 'if(ov){track.style.height=ov.scrollHeight+"px";return;}'
+		. 'var a=track.querySelector(".msv-auth-panel.is-active");'
+		. 'if(a){track.style.height=a.offsetHeight+"px";}}'
+		. 'if(window.ResizeObserver){var ro=new ResizeObserver(fit);'
+		. 'Array.prototype.forEach.call(pans.querySelectorAll(".msv-auth-panel"),function(p){ro.observe(p);});}'
+		. 'if(window.MutationObserver){new MutationObserver(fit).observe(pans,'
+		. '{subtree:true,attributes:true,attributeFilter:["class"]});}'
+		. 'window.addEventListener("resize",fit);setTimeout(fit,60);}());',
+		'after'
+	);
 }
 
 add_filter( 'render_block', 'caw_social_login_on_account_blocks', 10, 2 );

@@ -1375,10 +1375,20 @@ body.sp-night-mode-on .cawhome .ch-prod-fire.ch-new{color:#fff!important}
     flex: 0 0 auto;
 }
 .msv-auth-panels {
-    flex: 1 1 auto;
+    flex: 0 1 auto; /* may shrink to the cap, must never stretch past its content */
     min-height: 0;
     overflow-y: auto;
     overscroll-behavior: contain;
+}
+
+/* The track is height-driven by JS (see caw_dedupe_auth_modal) so the card hugs
+   whichever panel is showing. `flex-start` stops the panels stretching to the
+   tallest sibling — which is both the point, and what keeps the ResizeObserver
+   from feeding its own measurements back into a loop. */
+.msv-auth-panels__track {
+    align-items: flex-start;
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                height 0.28s cubic-bezier(0.4, 0, 0.2, 1);
 }
 /* slim scrollbar so the scroll area doesn't jar against the card */
 .msv-auth-panels::-webkit-scrollbar { width: 6px; }
