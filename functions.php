@@ -64,45 +64,25 @@ function caw_social_login_buttons( $atts = array() ) {
 		. '</div>';
 }
 
-add_action( 'wp_loaded', 'caw_relocate_checkout_social_login' );
-/**
- * Move the checkout social buttons next to the login form.
- *
- * Nextend renders them from its own "Easy Digital Downloads → checkout"
- * integration, whose position choices are all whole-form
- * (edd_checkout_form_top, edd_purchase_form_before_email,
- * ..._before_submit, ..._after_submit, edd_cart_items_before,
- * edd_before_purchase_form). With the default they land at the very top of the
- * purchase form, above Personal Info and nowhere near "Log Into Your Account".
- *
- * Nextend's `edd_login` setting does offer before/after the login fields, but it
- * hooks `edd_login_fields_after`, which EDD only fires for the standalone
- * edd/login block and [edd_login] shortcode — never inside the checkout, which
- * fires `edd_checkout_login_fields_after` instead. So the placement isn't
- * reachable from Nextend's settings at all.
- *
- * Unhook whichever position it registered and render the buttons ourselves at
- * the login fieldset. Setting Nextend's checkout integration to "No connect
- * button" achieves the same thing and would make this redundant — it's done
- * here so the layout doesn't depend on a setting being remembered.
- */
-function caw_relocate_checkout_social_login() {
-	foreach ( array(
-		'edd_cart_items_before',
-		'edd_before_purchase_form',
-		'edd_checkout_form_top',
-		'edd_purchase_form_before_email',
-		'edd_purchase_form_before_submit',
-		'edd_purchase_form_after_submit',
-	) as $hook ) {
-		remove_action( $hook, 'NextendSocialLoginPRO::edd_checkout' );
-	}
-}
-
 add_action( 'edd_checkout_login_fields_after', 'caw_checkout_social_login', 20 );
 /**
- * Social buttons below the checkout login fields — priority 20, so they follow
- * the "Lost Password?" link added at the default priority.
+ * Social buttons below the checkout login fields.
+ *
+ * REQUIRES: Nextend Social Login → Easy Digital Downloads → checkout position
+ * set to "No connect button". Nextend renders its own set otherwise, and every
+ * position it offers is whole-form (edd_checkout_form_top,
+ * edd_purchase_form_before_email, ..._before_submit, ..._after_submit,
+ * edd_cart_items_before, edd_before_purchase_form) — the default puts them at
+ * the top of the purchase form, above Personal Info and nowhere near "Log Into
+ * Your Account". Leave that setting on and both sets render.
+ *
+ * Its `edd_login` setting does offer before/after the login fields, but hooks
+ * `edd_login_fields_after`, which EDD fires only for the standalone edd/login
+ * block and [edd_login] shortcode; the checkout fires
+ * `edd_checkout_login_fields_after`. So this placement isn't reachable from
+ * Nextend's settings, hence doing it here.
+ *
+ * Priority 20, so the buttons follow the "Lost Password?" link below.
  */
 function caw_checkout_social_login() {
 	$buttons = caw_social_login_buttons( array( 'labeltype' => 'login' ) );
