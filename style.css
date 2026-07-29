@@ -1686,3 +1686,10 @@ body.sp-night-mode-on .wp-block-edd-login .wp-generate-pw:hover {
     color: #6b7280;
 }
 body.sp-night-mode-on .msv-auth-modal .caw-reg-note { color: #93a1b8 !important; }
+
+/* Checkout "Lost Password?" — re-added by caw_checkout_lost_password_link()
+   because EDD drops it when its Login Page setting is cleared. */
+.caw-lost-password { margin-top: 10px; font-size: 13px; }
+.caw-lost-password a { text-decoration: none; }
+.caw-lost-password a:hover { text-decoration: underline; }
+body.sp-night-mode-on .caw-lost-password a { color: #4a9fe0 !important; }

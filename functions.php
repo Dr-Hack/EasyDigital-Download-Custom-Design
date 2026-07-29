@@ -64,6 +64,35 @@ function caw_social_login_buttons( $atts = array() ) {
 		. '</div>';
 }
 
+add_action( 'edd_checkout_login_fields_after', 'caw_checkout_lost_password_link' );
+/**
+ * Restore the "Lost Password?" link in the checkout login form.
+ *
+ * EDD only renders that link when its Login Page setting points at a page
+ * holding the `edd/login` block (blocks/views/checkout/purchase-form/login.php
+ * wraps it in `if ( $login_page )`). This site deliberately clears that setting
+ * so every auth journey goes through wp-login.php — which silently removed the
+ * link, leaving a returning customer who forgot their password no way out of
+ * the checkout form.
+ *
+ * EDD fires this action at exactly the spot its own link would occupy, so the
+ * markup and classes match. Skipped if the setting is ever restored, so the two
+ * can't both render.
+ */
+function caw_checkout_lost_password_link() {
+	if ( function_exists( 'edd_get_login_page_uri' ) && edd_get_login_page_uri() ) {
+		return; // EDD is rendering its own.
+	}
+
+	$redirect = function_exists( 'edd_get_checkout_uri' ) ? edd_get_checkout_uri() : '';
+
+	printf(
+		'<p class="edd-blocks-form__group edd-blocks-form__group-lost-password caw-lost-password"><a href="%1$s">%2$s</a></p>',
+		esc_url( wp_lostpassword_url( $redirect ) ),
+		esc_html__( 'Lost Password?', 'mayosis-child' )
+	);
+}
+
 /* =============================================================================
    POPUP REGISTRATION — require a verified email address
    ============================================================================= */
