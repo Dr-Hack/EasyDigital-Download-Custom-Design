@@ -1460,3 +1460,114 @@ body.sp-night-mode-on .msv-auth-btn svg { color: #ffffff !important; }
 .caw-turnstile iframe { max-width: 100%; }
 .caw-turnstile--modal { margin: 2px 0 12px; }
 .caw-turnstile--modal:empty { margin: 0; }
+
+/* =============================================================================
+   EDD LOGIN / REGISTER BLOCKS  (/login/, /register/)
+   ============================================================================= */
+
+/* The submit row is `display:flex; justify-content:space-between; flex-wrap:nowrap`
+   (EDD's block CSS) while the parent theme sets `.edd-submit { min-width:100% }`.
+   A nowrap flex item that may not shrink below 100% plus a sibling "Generate
+   Password" button overflows the form by exactly that button's width — which is
+   why Register broke out past the bordered card. Let the submit shrink, and give
+   the row a gap so the two buttons can never touch. */
+.wp-block-edd-register div.edd-blocks-form__group-submit,
+.wp-block-edd-login div.reset-pass-submit {
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+}
+.wp-block-edd-register .edd-submit,
+.wp-block-edd-login .edd-submit {
+    flex: 1 1 220px;
+    min-width: 0;
+    max-width: 100%;
+}
+.wp-block-edd-register .wp-generate-pw,
+.wp-block-edd-login .wp-generate-pw {
+    flex: 0 0 auto;
+    margin-top: 0;
+    white-space: nowrap;
+}
+@media (max-width: 520px) {
+    .wp-block-edd-register .edd-submit,
+    .wp-block-edd-login .edd-submit,
+    .wp-block-edd-register .wp-generate-pw,
+    .wp-block-edd-login .wp-generate-pw {
+        flex: 1 1 100%;
+    }
+}
+
+/* Password strength meter: EDD paints light backgrounds (#c1e1b9 for "Strong"),
+   and night mode's blanket `*{color:#f2f2f2!important}` turns the text white on
+   top of them. Pin it dark. */
+body.sp-night-mode-on #pass-strength-result {
+    color: #1f2937 !important;
+    font-weight: 600;
+}
+
+/* =============================================================================
+   SOCIAL LOGIN (Nextend) — auth popup + login/register blocks
+   ============================================================================= */
+
+.caw-social-login { margin-top: 4px; }
+.caw-social-login .nsl-container { margin: 0 !important; padding: 0 !important; }
+.caw-social-login .nsl-container-buttons { gap: 8px; }
+.caw-social-login .nsl-button { border-radius: 10px !important; }
+
+/* Divider above the buttons on /login/ and /register/ (the popup ships its own). */
+.caw-social-divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 22px 0 14px;
+    color: #6b7280;
+    font-size: 12px;
+    font-weight: 500;
+}
+.caw-social-divider::before,
+.caw-social-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: #e5e7eb;
+}
+body.sp-night-mode-on .caw-social-divider { color: #8c99b0 !important; }
+body.sp-night-mode-on .caw-social-divider::before,
+body.sp-night-mode-on .caw-social-divider::after { background: #2b3a5c !important; }
+
+/* Night mode's `*{color:!important}` repaints Nextend's button labels — and it
+   reaches the <b> around the provider name too, so "Continue with **Google**"
+   came out near-white on Google's white button.
+   Nextend marks each button with data-skin ("dark" for the colour-filled
+   providers, "light"/"neutral" for the white ones) and colours the label from
+   that, so keying off the same attribute tracks whatever providers get enabled
+   later — no per-provider list to maintain. Descendants are targeted explicitly
+   because only an equally-specific !important can win. */
+body.sp-night-mode-on .caw-social-login .nsl-button,
+body.sp-night-mode-on .caw-social-login .nsl-button * {
+    color: #ffffff !important;
+}
+body.sp-night-mode-on .caw-social-login .nsl-button[data-skin="light"],
+body.sp-night-mode-on .caw-social-login .nsl-button[data-skin="light"] *,
+body.sp-night-mode-on .caw-social-login .nsl-button[data-skin="neutral"],
+body.sp-night-mode-on .caw-social-login .nsl-button[data-skin="neutral"] * {
+    color: #1f1f1f !important;
+}
+
+/* "Generate Password" reads as a stray bold label in night mode: EDD styles it
+   with var(--edd-blocks-light-grey), which the dark palette doesn't define.
+   Outlined rather than filled — the card itself is painted #28375a by
+   `has_mayosis_dark_bg`, so any solid fill near that tone disappears into it. */
+body.sp-night-mode-on .wp-block-edd-register .wp-generate-pw,
+body.sp-night-mode-on .wp-block-edd-login .wp-generate-pw {
+    background: transparent !important;
+    border: 1px solid #5c6f9e !important;
+    color: #dfe6f2 !important;
+    border-radius: 6px;
+}
+body.sp-night-mode-on .wp-block-edd-register .wp-generate-pw:hover,
+body.sp-night-mode-on .wp-block-edd-login .wp-generate-pw:hover {
+    background: #3a4c78 !important;
+    border-color: #7d8ba5 !important;
+}

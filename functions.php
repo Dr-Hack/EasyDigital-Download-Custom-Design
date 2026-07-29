@@ -23,6 +23,115 @@ define( 'EDD_SLUG', 'products' );
 require_once get_stylesheet_directory() . '/caw-turnstile.php';
 
 /* =============================================================================
+   SOCIAL LOGIN — Nextend buttons in the auth popup and on the account pages
+   ============================================================================= */
+
+add_action( 'init', 'caw_register_social_login_bridge', 20 );
+/**
+ * Light up the auth popup's built-in social section using Nextend.
+ *
+ * The parent theme's popup (header-account.php) already renders an
+ * "or continue with" divider followed by `[edd_social_login]` in BOTH the login
+ * and register panels — but only when that shortcode exists. It's a hook left
+ * for EDD's own social add-on, which this site doesn't run; Nextend registers
+ * `[nextend_social_login]` instead. Aliasing one onto the other lights up the
+ * popup's existing markup with no parent-theme edit and no DOM shuffling.
+ *
+ * If a genuine EDD social add-on is ever activated it keeps the shortcode and
+ * this bridge stands down.
+ */
+function caw_register_social_login_bridge() {
+	if ( shortcode_exists( 'edd_social_login' ) || ! shortcode_exists( 'nextend_social_login' ) ) {
+		return;
+	}
+	add_shortcode( 'edd_social_login', 'caw_social_login_buttons' );
+}
+
+/**
+ * Nextend's buttons, wrapped so the child theme can style them.
+ *
+ * @param array $atts labeltype: 'login' ("Continue with X") or 'register'.
+ */
+function caw_social_login_buttons( $atts = array() ) {
+	if ( ! shortcode_exists( 'nextend_social_login' ) || is_user_logged_in() ) {
+		return '';
+	}
+
+	$atts = shortcode_atts( array( 'labeltype' => 'login' ), (array) $atts, 'edd_social_login' );
+
+	return '<div class="caw-social-login">'
+		. do_shortcode( sprintf( '[nextend_social_login align="center" labeltype="%s"]', esc_attr( $atts['labeltype'] ) ) )
+		. '</div>';
+}
+
+add_action( 'wp_enqueue_scripts', 'caw_dedupe_auth_modal', 20 );
+/**
+ * Drop duplicate copies of the auth popup.
+ *
+ * `mayosis_header_elements()` renders `header-account.php` once per header
+ * region configured with the "account" element, and that template emits the
+ * entire `#msv-auth-modal` every time — so this site's header produces two
+ * identical modals: duplicate element IDs, two sets of social buttons, and a
+ * second set of login/register/forgot forms.
+ *
+ * Both the theme's own script and ours resolve `#msv-auth-modal` and the form
+ * IDs via getElementById, which returns only the first match. The second modal
+ * is therefore inert — but its forms would never receive a Turnstile widget, so
+ * if anything ever surfaced it instead, submitting would produce no token and
+ * the server-side guard would reject every attempt. Removing it keeps one
+ * source of truth.
+ *
+ * Injected immediately before the theme's own auth script so the extra copies
+ * are gone before anything binds to them.
+ */
+function caw_dedupe_auth_modal() {
+	if ( is_user_logged_in() || ! wp_script_is( 'msv-ajax-auth', 'enqueued' ) ) {
+		return;
+	}
+
+	wp_add_inline_script(
+		'msv-ajax-auth',
+		'(function(){var m=document.querySelectorAll("#msv-auth-modal");'
+		. 'for(var i=m.length-1;i>0;i--){m[i].parentNode.removeChild(m[i]);}}());',
+		'before'
+	);
+}
+
+add_filter( 'render_block', 'caw_social_login_on_account_blocks', 10, 2 );
+/**
+ * Add the same social buttons under the EDD login and registration blocks.
+ *
+ * Appended after the rendered block rather than hooked into the form, so the
+ * buttons sit outside the <form> — Nextend renders its own forms for some
+ * providers, and nesting those would be invalid markup.
+ *
+ * @param string $block_content Rendered block HTML.
+ * @param array  $block         Parsed block.
+ */
+function caw_social_login_on_account_blocks( $block_content, $block ) {
+	if ( is_user_logged_in() || empty( $block['blockName'] ) ) {
+		return $block_content;
+	}
+
+	$labels = array(
+		'edd/login'    => 'login',
+		'edd/register' => 'register',
+	);
+	if ( ! isset( $labels[ $block['blockName'] ] ) ) {
+		return $block_content;
+	}
+
+	$buttons = caw_social_login_buttons( array( 'labeltype' => $labels[ $block['blockName'] ] ) );
+	if ( '' === $buttons ) {
+		return $block_content;
+	}
+
+	return $block_content
+		. '<div class="caw-social-divider"><span>' . esc_html__( 'or continue with', 'mayosis-child' ) . '</span></div>'
+		. $buttons;
+}
+
+/* =============================================================================
    CHECKOUT — FORCE TWO-THIRDS LAYOUT
    Modifies the EDD checkout block's stored attrs before the render callback
    fires, so PHP generates the correct grid class from the start.

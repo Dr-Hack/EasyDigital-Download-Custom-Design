@@ -135,9 +135,9 @@ A bespoke, fully dynamic marketplace home page that replaces the old page-builde
 
 ---
 
-## Part 4 — Login Popup & Cloudflare Turnstile
+## Part 4 — Auth: Login Popup, Turnstile & Social Login
 
-Recent Mayosis versions ship an AJAX login/register/forgot-password popup (`#msv-auth-modal`, rendered by the parent theme's `header-account.php`). It arrives styled for a light page only and with no bot protection. This part fixes both.
+Recent Mayosis versions ship an AJAX login/register/forgot-password popup (`#msv-auth-modal`, rendered by the parent theme's `header-account.php`). It arrives styled for a light page only, with no bot protection and no social sign-in. This part covers all three, plus the EDD `/login/` and `/register/` pages.
 
 ### Features
 
@@ -151,6 +151,9 @@ Recent Mayosis versions ship an AJAX login/register/forgot-password popup (`#msv
 - **Theme-aware widget** — renders in Turnstile's dark or light theme based on the site's night-mode cookie.
 - **Admin screen** — Settings → Cloudflare Turnstile, or `wp-config.php` constants (which take priority and keep the secret out of the database).
 - **Replaces reCAPTCHA** — the FES reCAPTCHA field is force-excluded site-wide. EDD Pro (3.6.1+), MailPoet and Contact Form 7 have their own native Turnstile support and are configured from their own settings screens.
+- **Social sign-in** — [Nextend Social Login](https://wordpress.org/plugins/nextend-facebook-connect/) buttons in both popup panels and under the EDD login/registration blocks, themed for dark mode.
+- **De-duplicated popup** — the parent theme emits the entire modal once per header region, so a typical header config yields two copies with duplicate element IDs.
+- **`/login/` + `/register/` layout fix** — the Register button no longer overflows its card, and the password strength meter stays readable in dark mode.
 
 ### How It Works
 
@@ -163,7 +166,10 @@ The popup's markup lives in the parent theme and exposes **no hooks inside its f
 - `wp-login.php` is guarded via `authenticate`, `registration_errors` and `lostpassword_post`. The `authenticate` check deliberately does **not** defer to an existing credential error: otherwise a bot could grind passwords without ever meeting the captcha, since core reports "wrong password" first.
 - Verification results are **memoised per token**. Turnstile tokens are single-use, so a request that passes through two guards must not spend its token twice.
 - A transport failure (Cloudflare unreachable) is treated as a **pass**; an explicit `success: false` always fails. Failing closed on a network blip would lock every customer out of login and checkout. Override with the `caw_turnstile_fail_open` filter.
-- Dark-mode CSS uses `!important` throughout — `sp-night-mode` emits a blanket `body.sp-night-mode-on * { color: … !important }` that no amount of specificity can outrank.
+- Dark-mode CSS uses `!important` throughout — `sp-night-mode` emits a blanket `body.sp-night-mode-on * { color: … !important }` that no amount of specificity can outrank. That rule also reaches *inside* Nextend's buttons (the `<b>` around the provider name), so social button labels are re-coloured from Nextend's own `data-skin` attribute rather than a hard-coded provider list.
+- **Social buttons in the popup** are not injected — the parent theme already renders an "or continue with" divider followed by `[edd_social_login]` in both panels, gated on that shortcode existing. It's a hook left for EDD's own social add-on; aliasing it onto `[nextend_social_login]` lights up the existing markup with no template edit. A real EDD social add-on, if ever activated, keeps the shortcode and the bridge stands down.
+- **Duplicate modals** are removed by a short inline script attached *before* the theme's own auth script, so the extra copies are gone before anything binds to them. Both the theme's script and ours resolve the modal and form IDs with `getElementById`, which returns only the first match — leaving the duplicate would mean a second set of forms that never receives a Turnstile widget.
+- The `/register/` overflow was a CSS collision, not a bug in either party: EDD's block CSS makes the submit row `display:flex; flex-wrap:nowrap`, while the parent theme sets `.edd-submit { min-width:100% }`. A flex item that may not shrink below 100%, next to a sibling button, overflows by exactly that sibling's width.
 
 ### Filters
 
@@ -197,6 +203,7 @@ Site-wide accent colour is unified to **`#1e73be`** (matching the product/checko
 | EDD Software Licensing *(optional)* | for the license renewal form styling |
 | EDD Frontend Submission (FES) *(optional)* | vendor fields shown in Product Information; Turnstile on the vendor forms |
 | [Cloudflare Turnstile](https://dash.cloudflare.com/?to=/:account/turnstile) *(optional)* | free; site + secret key for the login popup and wp-login.php |
+| [Nextend Social Login](https://wordpress.org/plugins/nextend-facebook-connect/) *(optional)* | social buttons in the popup and on the login/register pages |
 
 ## Installation
 
