@@ -1403,6 +1403,31 @@ body.sp-night-mode-on .cawhome .ch-prod-fire.ch-new{color:#fff!important}
     max-height: none;
     overflow: visible;
 }
+
+/* Cap the panel's WIDTH as well as its height.
+ *
+ * The parent theme sizes each panel `min-width:100%; flex-shrink:0` with no cap.
+ * That is a floor, not a width: `flex-basis` is still `auto`, so the panel lays
+ * out at its MAX-CONTENT width and any child that prefers one long line drags it
+ * wider than the card. The registration success message does exactly that —
+ * "Account created — check your email for a link to set your password" wants
+ * 490px, which pushes the panel to 538px inside a 440px card and takes every
+ * field, the button and the Turnstile holder out past the edge with it.
+ *
+ * Only the track's flex children need this. The forgot panel is
+ * `position:absolute; inset:0`, so its width is already definite. */
+.msv-auth-modal .msv-auth-panels__track > .msv-auth-panel {
+    max-width: 100%;
+}
+
+/* With the panel capped the message has to wrap, and flex items default to
+ * `min-width:auto` — so a long unbreakable string (an email address echoed back
+ * in an error) would reintroduce the same overflow one level down. */
+.msv-auth-modal .msv-auth-msg { min-width: 0; }
+.msv-auth-modal .msv-auth-msg > span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
 /* slim scrollbar so the scroll area doesn't jar against the card */
 .msv-auth-panels::-webkit-scrollbar { width: 6px; }
 .msv-auth-panels::-webkit-scrollbar-thumb {
