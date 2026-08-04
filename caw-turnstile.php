@@ -452,6 +452,55 @@ function caw_turnstile_check_wp_lostpassword( $errors ) {
 }
 
 /* =============================================================================
+   EDD REGISTRATION  (the /register/ page's edd/register block, and the
+   [edd_register] shortcode — both fire the same hooks)
+   ============================================================================= */
+
+add_action( 'edd_register_form_fields_after', 'caw_turnstile_edd_register_field' );
+/**
+ * Put a widget on EDD's own registration form.
+ *
+ * The hook fires inside the <form>, just before </form>, in both the block view
+ * and the shortcode template.
+ */
+function caw_turnstile_edd_register_field() {
+	caw_turnstile_render( 'edd_register', array( 'appearance' => 'always' ) );
+}
+
+add_action( 'edd_pre_process_register_form', 'caw_turnstile_check_edd_register' );
+/**
+ * Guard EDD's registration POST.
+ *
+ * EDD does render a Turnstile widget here, but never checks it server-side:
+ * `edd_process_register_form()` contains no captcha check, and
+ * `EDD\Captcha\Validate` subscribes only to two AJAX actions plus
+ * `edd_pre_process_purchase` (checkout, which is off). The whole gate is
+ * client-side — the block's JS fetches a token, validates it over admin-ajax,
+ * then clicks submit — so a direct POST to `edd_user_register` walks straight
+ * past it. That left an unguarded signup endpoint that also bypasses the
+ * verified-email flow in caw_verified_popup_registration().
+ *
+ * We check our OWN token rather than re-verifying EDD's. By the time the form
+ * posts, EDD's `edd_captcha_validate` AJAX call has already spent its token,
+ * and Turnstile tokens are single-use — a second siteverify on it would come
+ * back `timeout-or-duplicate` and lock out every genuine signup. Reading EDD's
+ * cached result instead would work, but only by reaching into a private session
+ * key that a plugin update is free to rename.
+ *
+ * `edd_process_register_form()` bails whenever `edd_get_errors()` is non-empty,
+ * so setting an error here is enough to stop the registration. Checkout is
+ * unaffected: this hook only fires for `edd_register_submit` posts.
+ */
+function caw_turnstile_check_edd_register() {
+	if ( ! caw_turnstile_enabled( 'edd_register' ) ) {
+		return;
+	}
+	if ( ! caw_turnstile_request_passes() ) {
+		edd_set_error( 'caw_turnstile_failed', caw_turnstile_error_message() );
+	}
+}
+
+/* =============================================================================
    EDD FES — vendor login / registration / contact
    FES's own reCAPTCHA field is force-excluded here; its keys and toggles were
    cleared in settings, and this keeps the field gone even if a stray option
