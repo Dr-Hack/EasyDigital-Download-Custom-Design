@@ -114,17 +114,17 @@
 		});
 	}
 
-	/* The MSV modal's three forms. */
-	function mountModal() {
-		if (!Number(cfg.modal)) {
+	/* ── MSV modal: mount on demand ──────────────────────────────────────── */
+
+	/* Give one MSV form its widget. Idempotent: mount() no-ops on a holder it
+	   has already rendered into. */
+	function mountModalForm(form) {
+		if (!form || !MSV_FORMS[form.id]) {
 			return;
 		}
-		Object.keys(MSV_FORMS).forEach(function (formId) {
-			var form = document.getElementById(formId);
-			if (!form || form.querySelector('.caw-turnstile')) {
-				return;
-			}
-			var holder = document.createElement('div');
+		var holder = form.querySelector('.caw-turnstile');
+		if (!holder) {
+			holder = document.createElement('div');
 			holder.className = 'caw-turnstile caw-turnstile--modal';
 			var btn = form.querySelector('.msv-auth-btn');
 			if (btn) {
@@ -132,8 +132,72 @@
 			} else {
 				form.appendChild(holder);
 			}
-			mount(holder, MSV_FORMS[formId], cfg.appearance, cfg.size);
-		});
+		}
+		mount(holder, MSV_FORMS[form.id], cfg.appearance, cfg.size);
+	}
+
+	/* Which of the three forms is on screen right now. The forgot form lives in
+	   an overlay that sits on top of the sliding track, so it wins when open. */
+	function visibleModalForm(modal) {
+		if (modal.querySelector('.msv-auth-forgot-overlay.is-open')) {
+			return document.getElementById('mayosis_mbw_lrb_lost_password_form');
+		}
+		var panel = modal.querySelector('.msv-auth-panels__track .msv-auth-panel.is-active');
+		return panel ? panel.querySelector('form') : null;
+	}
+
+	/**
+	 * Mount when the modal opens, and again on each tab switch — visible form
+	 * only.
+	 *
+	 * Mounting all three up front spent a challenge per form on every logged-out
+	 * pageview: ~12 issued per modal that anyone actually opened. That buried
+	 * real auth traffic in Turnstile's analytics (a genuine credential-stuffing
+	 * spike would not have stood out against it) and left the dashboard
+	 * reporting that siteverify was never called for the widget.
+	 *
+	 * The theme's script fires nothing on open or switchTab, so both are read
+	 * off the class attribute instead — `is-open` on the modal, `is-active` on a
+	 * track panel, `is-open` on the forgot overlay. Mounting late is safe
+	 * because gate() already holds the submit until a token lands.
+	 */
+	function watchModal(modal) {
+		if (!Number(cfg.modal)) {
+			return;
+		}
+
+		if (window.MutationObserver) {
+			var queued = false;
+			var observer = new MutationObserver(function (records) {
+				var relevant = records.some(function (r) {
+					/* The forgot overlay carries .msv-auth-panel too. */
+					return r.target === modal || r.target.classList.contains('msv-auth-panel');
+				});
+				if (!relevant || queued) {
+					return;
+				}
+				/* Open-with-a-tab is two class changes in one batch; coalesce so
+				   the final state is what gets read. setTimeout rather than
+				   requestAnimationFrame — rAF is tied to the rendering pipeline
+				   and is throttled to a standstill in a background tab, which
+				   would strand the modal without a widget. */
+				queued = true;
+				setTimeout(function () {
+					queued = false;
+					syncModal(modal);
+				}, 0);
+			});
+			observer.observe(modal, { attributes: true, attributeFilter: ['class'], subtree: true });
+		}
+
+		syncModal(modal); // in case something opened it before we booted
+	}
+
+	function syncModal(modal) {
+		if (!modal.classList.contains('is-open')) {
+			return;
+		}
+		mountModalForm(visibleModalForm(modal));
 	}
 
 	/* ── Submit gate (MSV modal) ─────────────────────────────────────────── */
@@ -172,6 +236,11 @@
 			return; // token in hand — let the modal's own handler run
 		}
 
+		/* Safety net for a modal opened in some way the observer didn't see:
+		   without a widget there is no token, and the hold below would never be
+		   released. Mounting here costs this one submit the solve time. */
+		mountModalForm(form);
+
 		/* Challenge still solving. Hold the submit; the widget callback
 		   re-fires it as soon as the token lands. */
 		e.preventDefault();
@@ -192,13 +261,13 @@
 			return;
 		}
 		mountRendered();
-		mountModal();
 
 		var modal = document.getElementById('msv-auth-modal');
 		if (modal) {
 			/* Capture phase so this runs before the modal's delegated jQuery
 			   handler, which is bound on the modal element itself. */
 			modal.addEventListener('submit', gate, true);
+			watchModal(modal);
 		}
 
 		if (window.jQuery) {
