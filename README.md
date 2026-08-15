@@ -343,6 +343,26 @@ Two things worth knowing:
 
 Result on the home page: **26 → 15 stylesheets**, 64 → 43 CSS/JS files.
 
+### Images
+
+Home page product cards render at about **273×150** in the 4-up desktop grid, but the template used to request `medium_large` by name — so every card pulled the 768×768 file, 478 KB across seven cards.
+
+`front-page.php` now uses `wp_get_attachment_image()` instead of `get_the_post_thumbnail_url()`, which emits the full `srcset` candidate list (this library has 90, 120, 128, 150, 170, 256, 300, 500, 768, 1024 and full) and lets the browser choose. A 1× desktop pulls the 300w file: **478 KB → 128 KB**. Higher-DPI screens still get a large file, which is the point — the change is never worse than before.
+
+`sizes` describes the real layout: full width below 560px where the grid collapses to one column, ~50vw to 900px, 273px above that.
+
+**Do not pass `loading` explicitly.** WordPress applies its own LCP heuristic via `wp_get_loading_optimization_attributes()` — `fetchpriority="high"` on the first card, eager on the second, lazy on the rest. Passing `loading="lazy"` duplicates the attribute *and* overrides a better decision.
+
+#### Known gaps
+
+- **Blog cards and the crypto-news grid still use inline `style="background-image:url()"`.** CSS backgrounds cannot carry `srcset`, so they always pull `medium_large` into ~369×170 boxes, and they need a JavaScript lazy-loader because native `loading="lazy"` only works on `<img>`. Converting both to real `<img>` (the pattern the product cards already use) would fix the sizing *and* remove the need for a JS lazy-loader.
+- **WebP delivery must use distinct URLs.** Cloudflare Free does not vary its cache on `Accept`, so the usual `.htaccess` content-negotiation approach — same URL, `Vary: Accept` — risks caching one format and serving it to every visitor. Use `<picture>`-style rewriting, or Cloudflare Polish (paid), not content negotiation.
+- **If a plugin introduces `<picture>` wrappers, fix this selector first:**
+  ```css
+  .cawhome .ch-prod-img > img { ... }   /* direct child — breaks under <picture> */
+  ```
+  A `<picture>` wrapper makes the `<img>` a child of `<picture>`, not of `.ch-prod-img`, so the `object-fit` rules stop matching and card images break. Change `>` to a descendant selector at the same time, not afterwards.
+
 > **Verify DOM, not handle names.** Grepping raw HTML for a framework's classes gives false positives, because the selectors appear inside `<style>` blocks and in the `<link>` tags' own URLs. Strip `<style>`, `<script>`, `<link>` and `<meta>` first, then count. Doing this flipped two conclusions during this work — Elementor on the home page looked used (7 apparent matches, actually 0) and MailPoet looked unused (actually a live popup form).
 | `caw_stub_dead_crypto_widget_shortcode` | No-op for `[cryptocurrency_widget]` when the plugin is inactive (see Part 5). |
 
