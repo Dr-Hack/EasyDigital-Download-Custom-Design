@@ -1085,6 +1085,75 @@ function caw_drop_duplicate_child_stylesheet() {
 add_filter( 'mailpoet_display_custom_fonts', '__return_false' );
 
 /* =============================================================================
+   PERF STAGE 4 — DROP PLUGIN/THEME ASSETS THE FRONT PAGE NEVER USES
+
+   front-page.php is entirely bespoke markup, so most of what the parent theme
+   and the plugin stack enqueue site-wide has nothing to act on here. Every
+   entry below was checked against the RENDERED DOM (with <style>, <script>,
+   <link> and <meta> stripped, since the selectors otherwise match inside CSS)
+   and confirmed to have zero nodes on the front page.
+
+   Scoped to the front page on purpose. Swiper and Plyr drive the product
+   gallery and media previews, and EDD Reviews powers the Reviews tab, so
+   caw-single-download.php still needs all three.
+
+   NOT dequeued, despite looking unused: MailPoet. The home page carries a real
+   popup subscribe form (`mailpoet_form mailpoet_form_form mailpoet_form_popup`,
+   with the overlay and slide-up animation), so its 39 KB is load-bearing.
+
+   dashicons rides along with edd-reviews, which declares it as a dependency
+   (edd-reviews/src/AssetLoader.php). Dequeuing dashicons alone does nothing —
+   WP's dependency resolver re-adds it — so the two have to go together. Our own
+   star ratings do not need either: caw_product_rating() reads the average via
+   edd_reviews()->average_rating() and draws Font Awesome stars.
+   ============================================================================= */
+
+add_action( 'wp_enqueue_scripts', 'caw_dequeue_front_page_extras', 999 );
+function caw_dequeue_front_page_extras() {
+    if ( is_admin() || ! is_front_page() || is_home() ) {
+        return;
+    }
+
+    $styles = apply_filters(
+        'caw_front_page_dequeue_styles',
+        array(
+            'bbp-default',                  // no forum on the front page
+            'contact-form-7',               // no CF7 form
+            'plyr',                         // no <audio>/<video>
+            'swiperjs',                     // no swiper container
+            'beerslidercss',                // no before/after slider
+            'edd-sale-counter-advanced',    // no countdown
+            'edd-user-profiles',
+            'edd-recurring',
+            'edd-reviews',                  // stars here are our own Font Awesome markup
+            'dashicons',                    // only queued as edd-reviews' dependency
+            'aioseo/css/src/vue/standalone/blocks/table-of-contents/global.scss',
+        )
+    );
+
+    $scripts = apply_filters(
+        'caw_front_page_dequeue_scripts',
+        array(
+            'contact-form-7',
+            'swv',                          // CF7's form validation runtime
+            'plyr',
+            'swiperjs',
+            'beerslider',
+            'flipclock',                    // sale-counter dependency
+            'edd-sale-counter-advanced',
+            'edd-user-profiles',
+        )
+    );
+
+    foreach ( $styles as $handle ) {
+        wp_dequeue_style( $handle );
+    }
+    foreach ( $scripts as $handle ) {
+        wp_dequeue_script( $handle );
+    }
+}
+
+/* =============================================================================
    PERF STAGE 3 — DROP ELEMENTOR ON PAGES OUR OWN TEMPLATES RENDER
 
    The front page and every single download are rendered by front-page.php and

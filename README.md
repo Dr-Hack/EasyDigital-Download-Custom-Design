@@ -327,6 +327,23 @@ Two passes are required: most handles are queued on `wp_enqueue_scripts`, but th
 **Elementor's Font Awesome is safe to drop** because the parent theme already ships a complete FA5 at `mayosis/css/all.min.css`: both the Brands and Free families, every glyph `front-page.php` uses, and a populated `webfonts/` directory. Keeping both is a pure duplicate. Body classes (`elementor-page`, `elementor-kit-*`) are untouched, so any CSS keying off them still works.
 
 Result on the home page: **42 → 26 stylesheets**, with all 55 Font Awesome icons still rendering.
+
+#### Front-page-only dequeues
+
+`caw_dequeue_front_page_extras` drops what `front-page.php` has nothing to act on — bbPress, Contact Form 7 (styles, script and the `swv` validation runtime), Plyr, Swiper, BeerSlider, the sale counter and its FlipClock dependency, EDD user profiles, EDD Recurring, the AIOSEO table-of-contents CSS, and EDD Reviews together with dashicons.
+
+Filterable via `caw_front_page_dequeue_styles` / `caw_front_page_dequeue_scripts`.
+
+Scoped to the front page deliberately — Swiper and Plyr drive the product gallery and media previews, and EDD Reviews powers the Reviews tab, so `caw-single-download.php` still needs all three.
+
+Two things worth knowing:
+
+- **MailPoet is deliberately *not* dequeued.** The front page carries a real popup subscribe form (`mailpoet_form_form mailpoet_form_popup`, overlay plus slide-up animation), so its ~39 KB is load-bearing. It looks unused if you only read handle names.
+- **dashicons can only go together with `edd-reviews`**, which declares it as a dependency in `AssetLoader.php`. Dequeuing dashicons on its own does nothing — WP's dependency resolver re-adds it. Our star ratings need neither: `caw_product_rating()` reads the average through `edd_reviews()->average_rating()` and draws Font Awesome stars.
+
+Result on the home page: **26 → 15 stylesheets**, 64 → 43 CSS/JS files.
+
+> **Verify DOM, not handle names.** Grepping raw HTML for a framework's classes gives false positives, because the selectors appear inside `<style>` blocks and in the `<link>` tags' own URLs. Strip `<style>`, `<script>`, `<link>` and `<meta>` first, then count. Doing this flipped two conclusions during this work — Elementor on the home page looked used (7 apparent matches, actually 0) and MailPoet looked unused (actually a live popup form).
 | `caw_stub_dead_crypto_widget_shortcode` | No-op for `[cryptocurrency_widget]` when the plugin is inactive (see Part 5). |
 
 ---
