@@ -1062,6 +1062,28 @@ function caw_drop_duplicate_child_stylesheet() {
    Twemoji image and falls back to the native glyph.
    ============================================================================= */
 
+/* =============================================================================
+   PERF STAGE 2 — STOP MAILPOET SHIPPING 62 GOOGLE FONT FAMILIES
+
+   MailPoet's CustomFonts::enqueueStyle() (lib/Form/Util/CustomFonts.php:97)
+   enqueues its ENTIRE font-picker list on every front-end request — 62 families
+   split across three fonts.googleapis.com stylesheets, purely so the form
+   editor's dropdown can preview them. Three render-blocking cross-origin
+   requests, plus the DNS/TLS handshake to Google, on every page view.
+
+   None of our forms selects a custom font (no `fontFamily` is set on any of the
+   three rows in wp_mailpoet_forms), so nothing renders differently without them.
+
+   We use the filter rather than the Settings toggle: the underlying setting is
+   `3rd_party_libs.enabled`, which ALSO gates MailPoet's admin DocsBot widget and
+   the email editor's third-party libraries. The filter touches only the fonts.
+
+   If a form ever does need a Google font, return true here for that request —
+   or better, self-host just the family it uses.
+   ============================================================================= */
+
+add_filter( 'mailpoet_display_custom_fonts', '__return_false' );
+
 add_action( 'init', 'caw_disable_frontend_emoji' );
 function caw_disable_frontend_emoji() {
     if ( is_admin() ) {

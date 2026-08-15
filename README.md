@@ -313,6 +313,7 @@ Finish with a manual pass: add a product to the cart, load the home page, and co
 |---|---|
 | `caw_drop_duplicate_child_stylesheet` | The parent enqueues `get_stylesheet_uri()` as `mayosis-style`, which in a child theme resolves to **this theme's** `style.css` — so it shipped twice. Blanks the parent's `src` rather than deregistering it, so handles that declare it as a dependency still resolve. |
 | `caw_disable_frontend_emoji` | Removes the emoji detection script, its stylesheet and the `s.w.org` dns-prefetch on the front end. Admin untouched. |
+| `mailpoet_display_custom_fonts` → `false` | MailPoet enqueues its **entire font-picker list — 62 families across 3 `fonts.googleapis.com` stylesheets** — on every front-end request, just so the form editor can preview them. Three render-blocking cross-origin requests for fonts no form uses. Filtered off rather than using the Settings toggle, because the underlying `3rd_party_libs.enabled` setting also gates MailPoet's admin DocsBot widget and the email editor's libraries. If a form ever needs a Google font, self-host that one family instead. |
 | `caw_stub_dead_crypto_widget_shortcode` | No-op for `[cryptocurrency_widget]` when the plugin is inactive (see Part 5). |
 
 ---
