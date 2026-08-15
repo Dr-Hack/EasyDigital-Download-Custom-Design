@@ -1109,6 +1109,27 @@ add_filter( 'mailpoet_display_custom_fonts', '__return_false' );
 
 add_action( 'template_redirect', 'caw_legacy_url_redirects' );
 function caw_legacy_url_redirects() {
+    $path = trim( (string) wp_parse_url( add_query_arg( array() ), PHP_URL_PATH ), '/' );
+
+    /* Singular /product/foo/ -> /products/foo/. The download post type is
+       registered under the plural slug (EDD_SLUG), so the singular form has no
+       rewrite rule and 404s. WordPress then runs redirect_guess_404_permalink(),
+       which matches `post_name LIKE 'foo%'` — and where a download and one of its
+       attachments share a slug it picks the ATTACHMENT, whose permalink is
+       /products/foo/foo/. That is where the doubled URL came from; it was never
+       the .htaccess rules (they are commented out, and as written they point the
+       wrong way — products -> product — so leave them commented).
+
+       Handled before the is_404() gate below because we want it whether or not
+       the guesser has already produced a match. */
+    if ( 0 === strpos( $path, 'product/' ) ) {
+        $rest = substr( $path, strlen( 'product/' ) );
+        if ( '' !== $rest ) {
+            wp_safe_redirect( home_url( '/' . EDD_SLUG . '/' . $rest . '/' ), 301 );
+            exit;
+        }
+    }
+
     if ( ! is_404() ) {
         return;
     }
@@ -1116,16 +1137,42 @@ function caw_legacy_url_redirects() {
     $map = apply_filters(
         'caw_legacy_redirect_map',
         array(
-            'privacy-policy-2'     => '/privacy-policy/',
-            'security-information' => '/privacy-policy/',
+            'privacy-policy-2' => '/privacy-policy/',
         )
     );
 
-    $path = trim( wp_parse_url( add_query_arg( array() ), PHP_URL_PATH ), '/' );
     if ( isset( $map[ $path ] ) ) {
         wp_safe_redirect( home_url( $map[ $path ] ), 301 );
         exit;
     }
+}
+
+/* =============================================================================
+   ATTACHMENT PAGES -> PARENT
+
+   WordPress gives every child attachment its own permalink at
+   /{parent}/{attachment-slug}/. On this store that means 256 routable pages
+   under /products/, one per uploaded deliverable, publishing the filenames of
+   things people pay for — e.g. /products/crypto-signals-free/20210331_210118/.
+
+   They serve no purpose here (EDD delivers files through signed ?eddfile= URLs,
+   never attachment pages), they are thin duplicate content for search engines,
+   and they are what redirect_guess_404_permalink() latches onto to produce the
+   doubled /products/foo/foo/ URLs.
+
+   Sending them to the parent keeps any existing link working.
+   ============================================================================= */
+
+add_action( 'template_redirect', 'caw_attachment_pages_to_parent', 1 );
+function caw_attachment_pages_to_parent() {
+    if ( ! is_attachment() ) {
+        return;
+    }
+
+    $parent = wp_get_post_parent_id( get_queried_object_id() );
+
+    wp_safe_redirect( $parent ? get_permalink( $parent ) : home_url( '/' ), 301 );
+    exit;
 }
 
 /* =============================================================================
