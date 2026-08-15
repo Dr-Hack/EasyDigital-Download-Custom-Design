@@ -176,7 +176,8 @@ $cawh_store_url = function_exists( 'edd_get_option' ) ? get_post_type_archive_li
 <div class="ch-ticker"><div class="ch-wrap ch-ticker-inner">
 	<div class="ch-ticker-lbl"><span class="ch-live"></span> LIVE PRICES</div>
 	<div class="ch-ticker-track" id="ch-ticker-track">
-		<!-- Populated live from CoinGecko. Swap for [cryptocurrency_widget id="X"] once a ticker widget is built in Premium Cryptocurrency Widgets. -->
+		<!-- Populated live from CoinGecko. (Premium Cryptocurrency Widgets was retired — its
+		     CryptoCompare key is exhausted on the free tier, so its widgets rendered empty.) -->
 		<div class="ch-tk"><i class="fab fa-bitcoin" style="color:#f7931a!important"></i><span class="ch-sym">BTC</span><span class="ch-px">—</span></div>
 		<div class="ch-tk"><i class="fab fa-ethereum" style="color:#627eea!important"></i><span class="ch-sym">ETH</span><span class="ch-px">—</span></div>
 		<div class="ch-tk"><i class="fas fa-dollar-sign" style="color:#26a17b!important"></i><span class="ch-sym">USDT</span><span class="ch-px">—</span></div>
@@ -290,13 +291,18 @@ $cawh_store_url = function_exists( 'edd_get_option' ) ? get_post_type_archive_li
 <!-- ========================== FAQ / HELP ======================== -->
 <section class="ch-sec ch-pt0"><div class="ch-wrap">
 	<div class="ch-sec-head"><h2>Need Help? Start Here</h2><p>Quick answers to the questions our community asks most.</p></div>
+	<?php
+	// Every card deep-links into the dedicated knowledge base at cryptocurrencypakistan.org,
+	// which is where all FAQ content now lives. The on-site /faqs/ page is only a signpost.
+	$cawh_kb = 'https://cryptocurrencypakistan.org';
+	?>
 	<div class="ch-faq-grid">
-		<a class="ch-faq-q" href="<?php echo esc_url( home_url( '/faqs/' ) ); ?>"><div class="ch-qi"><i class="fab fa-bitcoin"></i></div><h3>How do I pay with cryptocurrency?</h3><i class="fas fa-chevron-right ch-chev"></i></a>
-		<a class="ch-faq-q" href="<?php echo esc_url( home_url( '/faqs/' ) ); ?>"><div class="ch-qi"><i class="fas fa-bolt"></i></div><h3>How fast will I receive my order?</h3><i class="fas fa-chevron-right ch-chev"></i></a>
-		<a class="ch-faq-q" href="<?php echo esc_url( home_url( '/sell-services-in-crypto/' ) ); ?>"><div class="ch-qi"><i class="fas fa-store"></i></div><h3>How can I sell my product on Crypto Awaz?</h3><i class="fas fa-chevron-right ch-chev"></i></a>
-		<a class="ch-faq-q" href="<?php echo esc_url( home_url( '/security-information/' ) ); ?>"><div class="ch-qi"><i class="fas fa-shield-alt"></i></div><h3>Is my purchase safe and protected?</h3><i class="fas fa-chevron-right ch-chev"></i></a>
-		<a class="ch-faq-q" href="https://play.google.com/store/apps/details?id=com.cryptoawaz.cryptocurrencypakistan" target="_blank" rel="noopener"><div class="ch-qi"><i class="fas fa-mobile-alt"></i></div><h3>Do you have a mobile app?</h3><i class="fas fa-chevron-right ch-chev"></i></a>
-		<a class="ch-faq-q" href="<?php echo esc_url( home_url( '/contact/' ) ); ?>"><div class="ch-qi"><i class="fas fa-headset"></i></div><h3>How do I contact support?</h3><i class="fas fa-chevron-right ch-chev"></i></a>
+		<a class="ch-faq-q" href="<?php echo esc_url( $cawh_kb . '/help/can-i-buy-with-cash/' ); ?>" target="_blank" rel="noopener"><div class="ch-qi"><i class="fab fa-bitcoin"></i></div><h3>How do I pay with cryptocurrency?</h3><i class="fas fa-chevron-right ch-chev"></i></a>
+		<a class="ch-faq-q" href="<?php echo esc_url( $cawh_kb . '/help/how-fast-will-i-receive-my-order/' ); ?>" target="_blank" rel="noopener"><div class="ch-qi"><i class="fas fa-bolt"></i></div><h3>How fast will I receive my order?</h3><i class="fas fa-chevron-right ch-chev"></i></a>
+		<a class="ch-faq-q" href="<?php echo esc_url( $cawh_kb . '/help/i-want-to-list-a-product-on-crypto-awaz-store/' ); ?>" target="_blank" rel="noopener"><div class="ch-qi"><i class="fas fa-store"></i></div><h3>How can I sell my product on Crypto Awaz?</h3><i class="fas fa-chevron-right ch-chev"></i></a>
+		<a class="ch-faq-q" href="<?php echo esc_url( $cawh_kb . '/help/is-my-purchase-safe-on-crypto-awaz/' ); ?>" target="_blank" rel="noopener"><div class="ch-qi"><i class="fas fa-shield-alt"></i></div><h3>Is my purchase safe and protected?</h3><i class="fas fa-chevron-right ch-chev"></i></a>
+		<a class="ch-faq-q" href="<?php echo esc_url( $cawh_kb . '/help/crypto-awaz-mobile-app/' ); ?>" target="_blank" rel="noopener"><div class="ch-qi"><i class="fas fa-mobile-alt"></i></div><h3>Do you have a mobile app?</h3><i class="fas fa-chevron-right ch-chev"></i></a>
+		<a class="ch-faq-q" href="<?php echo esc_url( $cawh_kb . '/contact-support/' ); ?>" target="_blank" rel="noopener"><div class="ch-qi"><i class="fas fa-headset"></i></div><h3>How do I contact support?</h3><i class="fas fa-chevron-right ch-chev"></i></a>
 	</div>
 	<div class="ch-faq-cta">
 		<p class="ch-sub">Explore our growing free knowledge base at <b>cryptocurrencypakistan.org</b> — built for the Pakistani crypto community.</p>

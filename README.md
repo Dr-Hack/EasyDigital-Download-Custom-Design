@@ -183,12 +183,137 @@ The popup's markup lives in the parent theme and exposes **no hooks inside its f
 
 ---
 
+## Part 5 — Crypto News (RSS)
+
+`caw-crypto-news.php` — a selectable **Page Template: "Crypto News (RSS)"**.
+
+Replaces a paid crypto-widget plugin whose CryptoCompare key sat on the free tier (25 calls/month) and had long been exhausted, so every widget fetched an error and rendered empty while still shipping 514 KB of CSS+JS on *every* page of the site.
+
+### Features
+
+- Merges **Cointelegraph, Decrypt and CoinDesk** into one date-sorted list, capped at 24 items.
+- Core `fetch_feed()` / SimplePie — **no API key, no rate limit, no third-party JavaScript**.
+- 5-second feed timeout and a 30-minute transient cache, so a stalled publisher can never hold the page open.
+- A dead feed is skipped, never fatal; failures are reported only to logged-in admins.
+- Reuses `.ch-blog-grid` / `.ch-post` from the home page, so it ships **no CSS of its own** and inherits night mode.
+
+### Setup
+
+1. Edit the target page → **Page Attributes → Template → Crypto News (RSS)**.
+2. Clear the page content (the template does not render `the_content`).
+
+### Filters
+
+| Filter | Purpose |
+|---|---|
+| `caw_crypto_news_feeds` | Replace the feed list (`array( 'Label' => 'https://…/feed' )`) |
+| `caw_crypto_news_limit` | Change the item cap (default `24`) |
+
+> Bitcoin Magazine's feed is deliberately omitted — it returns `403` to server-side requests.
+
+If the plugin is ever removed entirely, `functions.php` registers `[cryptocurrency_widget]` as a no-op so orphaned shortcodes in old content do not print as literal text. It is guarded by `shortcode_exists()`, so reactivating the plugin hands the tag straight back.
+
+---
+
 ## Global Palette
 
 Site-wide accent colour is unified to **`#1e73be`** (matching the product/checkout pages). This is set in the **theme Customizer**, not in this repo, since Mayosis stores it as a theme mod:
 
 - **Global Styles → Common Style → Primary Color** → `#1e73be`
 - **Header → Dark/Light Mode → Site Link Color** → `#4a9fe0`, **Site Link Hover Color** → `#ffffff`
+
+---
+
+## Performance
+
+### Cloudflare Cache Rules — caching HTML without breaking EDD
+
+> ⚠️ **Read this before touching Cache Rules.** An EDD store renders per-visitor state into the HTML. Cache it carelessly and you will serve one shopper's cart — or a logged-in page — to everybody.
+
+WordPress HTML is `cf-cache-status: DYNAMIC` by default: Cloudflare never caches it, so every visit pays a full edge→origin round trip. On this site that measured **1.73 s TTFB**; with the rule below it is **0.119 s** — a ~14× improvement. The origin itself was never slow (WP generates the page in ~96 ms); the entire cost was the round trip.
+
+**Use one rule with a fully negated expression, not a cache rule plus separate bypass rules.** When several Cache Rules match the same request you have to reason about which wins — and getting that backwards is exactly the failure that leaks a logged-in page to guests. If the "cache" rule's own expression already excludes everything, no request can match both, and rule precedence stops mattering.
+
+**Caching → Cache Rules → Create rule** — place it **last**.
+
+```
+(http.host eq "example.com")
+and not (
+  http.cookie contains "wordpress_logged_in"
+  or http.cookie contains "edd_items_in_cart"
+  or http.cookie contains "edd_session"
+  or http.cookie contains "wp-postpass_"
+  or http.cookie contains "comment_author_"
+  or http.request.uri.path contains "/wp-admin"
+  or http.request.uri.path contains "/wp-login.php"
+  or http.request.uri.path contains "/wp-json"
+  or http.request.uri.path contains "/checkout"
+  or http.request.uri.path contains "/purchase-confirmation"
+  or http.request.uri.path contains "/purchase-history"
+  or http.request.uri.path contains "/transaction-failed"
+  or http.request.uri.path contains "/account"
+  or http.request.uri.path contains "/vendor"
+  or http.request.uri.path contains "/login"
+  or http.request.uri.path contains "/register"
+  or http.request.uri.query contains "edd_action"
+  or http.request.uri.query contains "eddfile"
+  or http.request.uri.query contains "add-to-cart"
+  or http.request.uri.query contains "preview"
+)
+```
+
+| Setting | Value | Why |
+|---|---|---|
+| Cache eligibility | **Eligible for cache** | WP sends no `Cache-Control` on HTML, so nothing caches without this |
+| Edge TTL | **Ignore cache-control header and use this TTL → 2 hours** | With no origin header, "use header if present" would cache nothing |
+| Browser TTL | **Respect origin TTL** | Never give HTML a long browser TTL — a CF purge cannot clear it |
+
+Then **Caching → Configuration → Purge Everything** once.
+
+#### Why each exclusion is there
+
+- **`edd_items_in_cart`** — the one people miss. EDD sets this cookie for 30 minutes whenever the cart is non-empty (`src/Sessions/Traits/Cookie.php`). The header renders the count as literal HTML (`<span class="edd-cart-quantity">0</span>`), so without this a shopper with items in their cart is served a cached header reading **0**. Cloudflare **APO does not cover this** — its built-in bypass list handles `wordpress_*`, `woocommerce_*` and `comment_*`, but has no knowledge of EDD.
+- **`edd_session`** — any visitor with EDD session state.
+- **`eddfile`** — EDD's signed file-delivery URLs. Caching one would serve a paid download from the edge.
+- **`edd_action`** — add-to-cart, discount apply, gateway switching.
+- **`preview`** — so draft previews are never cached while editing.
+- **`wordpress_logged_in`** — never cache an authenticated response.
+
+#### What does *not* need excluding
+
+- **Night mode** — applied client-side; the server sends an identical `<body class>` with or without the `wpNightMode` cookie, so cached HTML cannot serve the wrong theme.
+- **Nonces** — present in the HTML but shared across logged-out visitors, so they are safe to cache as long as logged-in users are excluded.
+- **Product and archive pages** — fully cacheable, and they are the heaviest pages on the site.
+
+#### Do not enable "bypass all query strings"
+
+A rule of `len(http.request.uri.query) > 0` looks safe but destroys the cache hit rate: every `?utm_source=`, `?fbclid=` and `?gclid=` link from a campaign skips cache entirely. The four targeted query conditions above cover the genuinely unsafe cases.
+
+#### Verifying
+
+```bash
+# should be MISS then HIT
+curl -sI https://example.com/ | grep -i cf-cache-status
+curl -sI https://example.com/products/ | grep -i cf-cache-status
+
+# must NOT be HIT
+curl -sI -b "edd_items_in_cart=1" https://example.com/ | grep -i cf-cache-status
+curl -sI https://example.com/checkout/ | grep -i cf-cache-status
+```
+
+Run these from **outside** the origin. Running `curl` on the web server itself resolves the domain to localhost, returns no `cf-*` headers at all, and tells you nothing about the edge.
+
+Finish with a manual pass: add a product to the cart, load the home page, and confirm the header count is right. No automated check catches that.
+
+### Asset trimming
+
+`functions.php` drops weight that nothing on the page uses:
+
+| Function | Effect |
+|---|---|
+| `caw_drop_duplicate_child_stylesheet` | The parent enqueues `get_stylesheet_uri()` as `mayosis-style`, which in a child theme resolves to **this theme's** `style.css` — so it shipped twice. Blanks the parent's `src` rather than deregistering it, so handles that declare it as a dependency still resolve. |
+| `caw_disable_frontend_emoji` | Removes the emoji detection script, its stylesheet and the `s.w.org` dns-prefetch on the front end. Admin untouched. |
+| `caw_stub_dead_crypto_widget_shortcode` | No-op for `[cryptocurrency_widget]` when the plugin is inactive (see Part 5). |
 
 ---
 
@@ -291,6 +416,9 @@ Each part is independent:
 
 - **Product page** — remove the `caw_force_single_product_template` filter, or delete `caw-single-download.php`.
 - **Home page** — remove the `caw_force_front_page_template` filter, or delete `front-page.php`.
+- **Crypto News** — switch the page back to the default template, or delete `caw-crypto-news.php`.
+- **Asset trimming** — delete `caw_drop_duplicate_child_stylesheet` and/or `caw_disable_frontend_emoji`; both simply stop taking effect.
+- **Cloudflare caching** — disable the Cache Rule and purge everything. Nothing in this repo depends on it.
 - **Turnstile** — clear the keys (Settings → Cloudflare Turnstile, or the `wp-config.php` constants) and every guard no-ops. To remove it completely, drop the `require_once` for `caw-turnstile.php` from `functions.php`. The popup's dark-mode fix lives in `style.css` and is unaffected either way.
 
 ## License

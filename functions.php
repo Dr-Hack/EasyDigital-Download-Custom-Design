@@ -995,3 +995,99 @@ function caw_is_fully_sold_out( $id ) {
     }
     return ! empty( $s['tracked'] ) && ! empty( $s['soldOut'] );
 }
+
+/* =============================================================================
+   NEUTRALISE ORPHANED [cryptocurrency_widget] SHORTCODES
+
+   Premium Cryptocurrency Widgets was deactivated: its CryptoCompare key is on
+   the free tier (25 calls/month) and has been exhausted for a long time, so
+   every widget fetched an error and rendered empty while still shipping 514 KB
+   (288 KB app.js + 225 KB style.css) on EVERY page. The homepage ticker it once
+   powered is now our own CoinGecko one in front-page.php.
+
+   WordPress prints an unregistered shortcode as literal text, so the leftover
+   calls in /home/ (8), /crypto-news/ (1) and /vendor-feedback/ (1) would show
+   raw "[cryptocurrency_widget type=... ]" to visitors. Registering a no-op
+   keeps those pages clean until the content itself is cleaned up.
+
+   Guarded on function_exists so reactivating the plugin silently takes over
+   again — WP keeps whichever handler registered first, and the plugin registers
+   on its own 'init', so this only claims the tag when the plugin is absent.
+   ============================================================================= */
+
+add_action( 'init', 'caw_stub_dead_crypto_widget_shortcode', 99 );
+function caw_stub_dead_crypto_widget_shortcode() {
+    if ( shortcode_exists( 'cryptocurrency_widget' ) ) {
+        return; // Plugin is active and owns the tag.
+    }
+    add_shortcode( 'cryptocurrency_widget', '__return_empty_string' );
+}
+
+/* =============================================================================
+   PERF STAGE 1 — STOP SHIPPING THE CHILD STYLESHEET TWICE
+
+   The parent does `wp_enqueue_style( 'mayosis-style', get_stylesheet_uri() )`
+   (library/mayosis-enqueue.php:29). In a child theme get_stylesheet_uri()
+   resolves to the CHILD's style.css — so the parent already loads our file, and
+   mayosis_child_enqueue_styles() then loads the identical file a second time
+   under its own handle. Prod shipped both: ?ver=7.0.4 and ?ver=<filemtime>.
+
+   We keep OUR handle (it carries the filemtime cache-bust) and blank the
+   parent's src instead of deregistering it, because other handles may declare
+   'mayosis-style' as a dependency — an unregistered handle would silently drop
+   whatever depends on it. A registered handle with an empty src prints no
+   <link> but still satisfies dependency resolution, and any wp_add_inline_style
+   attached to it still emits.
+
+   Cascade is unaffected: both copies are byte-identical and sat adjacent in the
+   document (positions 15 and 16, immediately before bootstrap/essential/main).
+   ============================================================================= */
+
+add_action( 'wp_enqueue_scripts', 'caw_drop_duplicate_child_stylesheet', 20 );
+function caw_drop_duplicate_child_stylesheet() {
+    $styles = wp_styles();
+    if ( isset( $styles->registered['mayosis-style'] ) ) {
+        $styles->registered['mayosis-style']->src = '';
+    }
+}
+
+/* =============================================================================
+   PERF STAGE 1 — DROP THE EMOJI POLYFILL ON THE FRONT END
+
+   WordPress ships a detection script plus a stylesheet to rewrite emoji as
+   Twemoji <img> tags, for browsers that have not needed it in years. Front end
+   only — the admin keeps its own copy so the editor is untouched.
+
+   Side benefit: the vendor "verified" tick stops rendering as a washed-out
+   Twemoji image and falls back to the native glyph.
+   ============================================================================= */
+
+add_action( 'init', 'caw_disable_frontend_emoji' );
+function caw_disable_frontend_emoji() {
+    if ( is_admin() ) {
+        return;
+    }
+
+    remove_action( 'wp_head', 'print_emoji_detection_script', 7 );
+    remove_action( 'wp_print_styles', 'print_emoji_styles' );
+    remove_filter( 'the_content_feed', 'wp_staticize_emoji' );
+    remove_filter( 'comment_text_rss', 'wp_staticize_emoji' );
+
+    /* Drop the preconnect WP emits for the emoji CDN. */
+    add_filter(
+        'wp_resource_hints',
+        function ( $urls, $relation ) {
+            if ( 'dns-prefetch' !== $relation ) {
+                return $urls;
+            }
+            return array_filter(
+                $urls,
+                function ( $url ) {
+                    return false === strpos( is_array( $url ) ? ( $url['href'] ?? '' ) : $url, 's.w.org' );
+                }
+            );
+        },
+        10,
+        2
+    );
+}
