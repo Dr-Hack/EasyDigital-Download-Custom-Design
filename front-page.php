@@ -43,7 +43,7 @@ if ( ! function_exists( 'cawhome_product_card' ) ) {
 		if ( $terms && ! is_wp_error( $terms ) ) {
 			$cat = esc_html( $terms[0]->name );
 		}
-		$thumb = get_the_post_thumbnail_url( $id, 'medium_large' );
+		$thumb_id = get_post_thumbnail_id( $id );
 		$price = function_exists( 'edd_price' ) ? edd_price( $id, false ) : '';
 		$stars = function_exists( 'caw_review_stars_html' ) ? caw_review_stars_html( $id ) : '';
 		// caw_review_stars_html() returns an <a> — strip it so we never nest anchors inside the card.
@@ -54,8 +54,28 @@ if ( ! function_exists( 'cawhome_product_card' ) ) {
 		<div class="ch-prod">
 			<a class="ch-prod-imglink" href="<?php echo $link; ?>">
 				<span class="ch-prod-img">
-					<?php if ( $thumb ) : ?>
-						<img src="<?php echo esc_url( $thumb ); ?>" alt="<?php echo $title; ?>" class="skip-lazy" loading="lazy">
+					<?php if ( $thumb_id ) : ?>
+						<?php
+						/* wp_get_attachment_image() emits srcset, so the browser picks the file that
+						   fits the box instead of always pulling medium_large. The card is ~273px
+						   wide in the 4-up desktop grid, ~50vw at tablet and full width below 560px,
+						   which is what `sizes` describes. Requesting medium_large by name only sets
+						   the src fallback for browsers without srcset. */
+						echo wp_get_attachment_image(
+							$thumb_id,
+							'medium_large',
+							false,
+							array(
+								/* No 'loading' here: WP adds it via
+								   wp_get_loading_optimization_attributes(), and passing it
+								   too emits the attribute twice. */
+								'alt'      => $title,
+								'class'    => 'skip-lazy',
+								'decoding' => 'async',
+								'sizes'    => '(max-width: 560px) calc(100vw - 48px), (max-width: 900px) calc(50vw - 34px), 273px',
+							)
+						);
+						?>
 					<?php else : ?>
 						<i class="fas fa-box"></i>
 					<?php endif; ?>
