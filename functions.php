@@ -1085,6 +1085,50 @@ function caw_drop_duplicate_child_stylesheet() {
 add_filter( 'mailpoet_display_custom_fonts', '__return_false' );
 
 /* =============================================================================
+   LEGACY URL REDIRECTS
+
+   The site carried three privacy pages, all three linked from menus and all
+   three indexed:
+     /privacy-policy/        (ID 3)  WordPress boilerplate, but the page WP has
+                                     registered as wp_page_for_privacy_policy
+     /privacy-policy-2/      (ID 66) the real, bespoke Crypto Awaz policy
+     /security-information/  (ID 38) the boilerplate again, mis-titled
+
+   Resolution: page 66's content was moved into page 3, so /privacy-policy/
+   keeps the clean slug and WP's designated-page setting while carrying the real
+   policy. 66 and 38 are retired and folded in here.
+
+   Gated on is_404() so it is self-sequencing: while the old pages still exist
+   they render normally, and the redirect only takes over once they are gone.
+   That also means this cannot mask a live page by accident.
+
+   WP's own redirect_guess_404_permalink() does not cover these — it matches on
+   `post_name LIKE '<request>%'`, and neither "privacy-policy-2" nor
+   "security-information" is a prefix of "privacy-policy".
+   ============================================================================= */
+
+add_action( 'template_redirect', 'caw_legacy_url_redirects' );
+function caw_legacy_url_redirects() {
+    if ( ! is_404() ) {
+        return;
+    }
+
+    $map = apply_filters(
+        'caw_legacy_redirect_map',
+        array(
+            'privacy-policy-2'     => '/privacy-policy/',
+            'security-information' => '/privacy-policy/',
+        )
+    );
+
+    $path = trim( wp_parse_url( add_query_arg( array() ), PHP_URL_PATH ), '/' );
+    if ( isset( $map[ $path ] ) ) {
+        wp_safe_redirect( home_url( $map[ $path ] ), 301 );
+        exit;
+    }
+}
+
+/* =============================================================================
    PERF STAGE 4 — DROP PLUGIN/THEME ASSETS THE FRONT PAGE NEVER USES
 
    front-page.php is entirely bespoke markup, so most of what the parent theme

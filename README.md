@@ -468,6 +468,7 @@ Each part is independent:
 - **Product page** — remove the `caw_force_single_product_template` filter, or delete `caw-single-download.php`.
 - **Home page** — remove the `caw_force_front_page_template` filter, or delete `front-page.php`.
 - **Crypto News** — switch the page back to the default template, or delete `caw-crypto-news.php`.
+- **Legacy redirects** — remove `caw_legacy_url_redirects`, or filter the map to empty with `caw_legacy_redirect_map`. It only ever acts on a 404, so removing it just restores the 404.
 - **Asset trimming** — delete `caw_drop_duplicate_child_stylesheet` and/or `caw_disable_frontend_emoji`; both simply stop taking effect.
 - **Cloudflare caching** — disable the Cache Rule and purge everything. Nothing in this repo depends on it.
 - **Turnstile** — clear the keys (Settings → Cloudflare Turnstile, or the `wp-config.php` constants) and every guard no-ops. To remove it completely, drop the `require_once` for `caw-turnstile.php` from `functions.php`. The popup's dark-mode fix lives in `style.css` and is unaffected either way.
