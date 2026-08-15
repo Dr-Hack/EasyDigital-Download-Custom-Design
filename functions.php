@@ -1084,6 +1084,77 @@ function caw_drop_duplicate_child_stylesheet() {
 
 add_filter( 'mailpoet_display_custom_fonts', '__return_false' );
 
+/* =============================================================================
+   PERF STAGE 3 — DROP ELEMENTOR ON PAGES OUR OWN TEMPLATES RENDER
+
+   The front page and every single download are rendered by front-page.php and
+   caw-single-download.php, so no Elementor widget ever runs on them. Elementor
+   still enqueues its full front-end bundle regardless, because the underlying
+   post carries _elementor_data: on the home page that is 13 stylesheets plus
+   three scripts — frontend.min.js, frontend-modules.min.js,
+   webpack.runtime.min.js, the eicons and Font Awesome sets, the Kit CSS
+   (post-154), the page CSS (post-6019) and five locally-hosted Google fonts.
+
+   Verified before writing this: the home page and a product page contain ZERO
+   Elementor DOM nodes once <style>/<script> blocks are stripped (the selectors
+   only ever appear inside CSS). /about-us/ has 60 and /contact/ has 21 — both
+   are genuinely Elementor-built, which is exactly why this is scoped rather
+   than global. Elementor Pro is not installed, so there are no theme-builder
+   header/footer templates that could be caught out by this.
+
+   Matching on src rather than a handle list: Elementor renames and splits
+   handles between versions (widget-heading / widget-divider / widget-icon-box
+   are recent per-widget additions), whereas the path is stable.
+
+   The body keeps its elementor-page / elementor-kit-154 classes either way —
+   our reader-column CSS keys off those, so the cascade is unaffected.
+   ============================================================================= */
+
+/**
+ * Whether the current request is rendered by one of our own templates, and so
+ * cannot contain Elementor output.
+ */
+function caw_page_renders_without_elementor() {
+    $ours = ( is_front_page() && ! is_home() ) || is_singular( 'download' );
+
+    return (bool) apply_filters( 'caw_page_renders_without_elementor', $ours );
+}
+
+/* Two passes are needed. Most of the bundle is queued on wp_enqueue_scripts, but
+   Elementor adds the Kit's locally-hosted Google fonts and its Font Awesome sets
+   later, so a single early pass leaves eight files behind. wp_print_styles fires
+   immediately before WP_Styles::do_items(), which is the last safe moment. */
+add_action( 'wp_enqueue_scripts', 'caw_dequeue_elementor_where_unused', 999 );
+add_action( 'wp_print_styles', 'caw_dequeue_elementor_where_unused', 99 );
+function caw_dequeue_elementor_where_unused() {
+    if ( is_admin() || ! caw_page_renders_without_elementor() ) {
+        return;
+    }
+
+    /* mayosis-core's before/after widget lives under its own elementor/ dir and
+       is likewise useless without an Elementor widget to drive it.
+
+       Elementor's Font Awesome copy goes too: the parent theme already ships a
+       complete FA5 at mayosis/css/all.min.css — both the Brands and Free
+       families, every glyph front-page.php uses, and the webfonts/ directory it
+       points at is present and served. Keeping both is a pure duplicate. */
+    $pattern = '#/(plugins/elementor|uploads/elementor|plugins/mayosis-core/public/elementor)/#';
+
+    foreach ( array( wp_styles(), wp_scripts() ) as $deps ) {
+        /* Collect first — dequeue() mutates the queue we would be iterating. */
+        $drop = array();
+        foreach ( $deps->queue as $handle ) {
+            $src = isset( $deps->registered[ $handle ]->src ) ? $deps->registered[ $handle ]->src : '';
+            if ( $src && preg_match( $pattern, $src ) ) {
+                $drop[] = $handle;
+            }
+        }
+        foreach ( $drop as $handle ) {
+            $deps->dequeue( $handle );
+        }
+    }
+}
+
 add_action( 'init', 'caw_disable_frontend_emoji' );
 function caw_disable_frontend_emoji() {
     if ( is_admin() ) {
