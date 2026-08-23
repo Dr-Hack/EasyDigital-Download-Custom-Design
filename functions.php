@@ -343,6 +343,18 @@ add_filter( 'render_block_data', 'caw_force_checkout_two_col' );
 function caw_force_checkout_two_col( $parsed_block ) {
     if ( isset( $parsed_block['blockName'] ) && $parsed_block['blockName'] === 'edd/checkout' ) {
         $parsed_block['attrs']['layout'] = 'two-thirds';
+
+        /* EDD 3.7.0 removed 'show_register_form' from the checkout block's own
+           wp_parse_args() defaults in includes/blocks/includes/checkout/checkout.php.
+           On the legacy (no inner blocks) render path nothing re-supplies it, so
+           PersonalInfo::get_personal_info_forms() skips its login/register branch
+           entirely and falls through to the "no forms were set" fallback, which
+           force-adds the REGISTER form. Result on 3.7.0: the login form and the
+           tab toggle both disappear, and with them our social buttons and
+           lost-password link -- those hook edd_checkout_login_fields_after, which
+           only fires inside login.php. Re-seed the site setting so the block
+           behaves as it did on 3.6.9. */
+        $parsed_block['attrs']['show_register_form'] = edd_get_option( 'show_register_form' );
     }
     return $parsed_block;
 }

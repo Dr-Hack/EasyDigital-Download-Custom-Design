@@ -1723,3 +1723,20 @@ body.sp-night-mode-on .caw-lost-password a { color: #4a9fe0 !important; }
    caw_checkout_social_login) — keep them the width of the form fields. */
 #edd_login_fields .caw-social-divider { margin: 18px 0 12px; }
 #edd_login_fields .caw-social-login .nsl-container { text-align: left; }
+
+/* =============================================================================
+   EDD 3.7.0 — cart loading overlay (night mode)
+   3.7.0 replaced the old inline #edd-discount-loader spinner with a single
+   full-screen overlay appended to <body> (assets/src/js/frontend/utilities/
+   cart-loading.js). Its stock background is rgba(255,255,255,.7) at
+   z-index 999999, which flashes white over the dark checkout on every
+   discount / quantity / tax recalculation and gateway load.
+   The overlay lives outside #edd_checkout_form_wrap, hence the body-level
+   selector. ============================================================== */
+body.sp-night-mode-on .edd-cart-loading {
+    background: rgba(20, 27, 43, 0.72) !important;
+}
+body.sp-night-mode-on .edd-cart-loading__spinner {
+    border-color: rgba(255, 255, 255, 0.22) !important;
+    border-left-color: #4a9fe0 !important;
+}
