@@ -360,6 +360,50 @@ function caw_force_checkout_two_col( $parsed_block ) {
 }
 
 /* =============================================================================
+   CHECKOUT — HOLD THE CFM FIELDS BACK UNTIL THE CUSTOMER IS LOGGED IN
+   Checkout Fields Manager hooks its whole form onto edd_checkout_form_top at
+   priority 0 (classes/frontend/class-checkout.php), which is the very top of
+   #edd_purchase_form -- above the login form, since that is rendered later by
+   PaymentDetails::render(). It also switches off EDD's own Personal Info
+   fieldset (views/checkout/purchase-form/personal-info.php returns early when
+   EDD_CFM() exists), so everything in that section is CFM's.
+
+   Two problems with showing it to a logged-out visitor:
+     1. Guest checkout is disabled, so logging in is the only way to complete a
+        purchase -- every field above the login form is unanswerable until then,
+        and the email is about to be filled in from the account anyway.
+     2. Worse, the CFM fields are `required` and live in the SAME <form> as the
+        "Log in" submit, which carries no formnovalidate. The browser therefore
+        refuses to submit the login until the customer has typed their email and
+        whichever per-download field applies (Discord / Telegram / X / postal
+        address...). They are made to fill in the form before they may log in.
+
+   So drop CFM's renderer while logged out. After login the page re-renders and
+   the fields come back, with the email prefilled from the account.
+
+   NOTE: do NOT "fix" this by hiding the fieldset in CSS -- a hidden but still
+   `required` input makes Chrome refuse to submit the form at all
+   ("An invalid form control ... is not focusable"), which is strictly worse.
+   ============================================================================= */
+
+add_action( 'template_redirect', 'caw_defer_cfm_fields_until_login' );
+function caw_defer_cfm_fields_until_login() {
+    if ( ! function_exists( 'EDD_CFM' ) || ! function_exists( 'edd_no_guest_checkout' ) ) {
+        return;
+    }
+    // If guest checkout is ever re-enabled, guests genuinely do need these
+    // fields up front -- only defer them when logging in is the only route.
+    if ( is_user_logged_in() || ! edd_no_guest_checkout() ) {
+        return;
+    }
+    $cfm = EDD_CFM();
+    if ( empty( $cfm->checkout ) || ! is_object( $cfm->checkout ) ) {
+        return;
+    }
+    remove_action( 'edd_checkout_form_top', array( $cfm->checkout, 'render_checkout_form' ), 0 );
+}
+
+/* =============================================================================
    CHECKOUT — HEADER (title + secure badge)
    Injected via edd_before_purchase_form so it works whether the page uses
    the Gutenberg block OR the legacy [edd_checkout] shortcode.
