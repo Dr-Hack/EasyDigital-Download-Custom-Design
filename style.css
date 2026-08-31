@@ -1740,3 +1740,515 @@ body.sp-night-mode-on .edd-cart-loading__spinner {
     border-color: rgba(255, 255, 255, 0.22) !important;
     border-left-color: #4a9fe0 !important;
 }
+
+/* =============================================================================
+   FES VENDOR DASHBOARD — COLOUR REPAIR
+
+   Reported by a vendor: the Earnings tab renders white-on-white in night mode.
+
+   Two independent causes, both in the parent theme:
+
+   1. LEGIBILITY. sp-night-mode emits a blanket
+        body.sp-night-mode-on * { color: #f2f2f2 !important }
+      (mayosis-core/library/extensions/sp-night-mode/public/
+       class-sp-night-mode-public.php:190). Mayosis' night overrides in
+      css/mayosis_custom_css_loader.php cover the comments table and the
+      products list — but NOT: the commissions tables, their total rows, the
+      orders list (.mayofes--order--flex--item has zero night coverage), the
+      announcements box, or .fes-profile-form / .fes-form.fes-submission-form-div.
+      Those keep main.css' hard-coded #fcfcfc / #fff / #edf0f7 panels, so
+      light text lands on a light panel and disappears.
+
+      Note the parent paints `table` dark but `tbody` stays #fcfcfc — the
+      tbody repaints over it, which is why only the header row survived.
+
+      Verified against the live dev site's own CSS: before/after screenshots
+      in Site/screenshots/vendor-dashboard-real-*.png.
+
+   2. PALETTE. The dashboard predates the Phase-3 move to #1E73BE. It shipped
+      two unrelated header colours: #1e0050 (commissions + overview) and
+      #28375a (products + orders). Both are unified onto the accent here.
+
+   Everything is !important because the child stylesheet prints BEFORE
+   css/main.min.css (see caw_drop_duplicate_child_stylesheet in functions.php),
+   and the night-mode rules it fights are themselves !important.
+   ============================================================================= */
+
+.fes-vendor-dashboard-wrap,
+#edd_user_commissions,
+#edd_user_commissions_overview {
+    --caw-vd-panel:     #ffffff;
+    --caw-vd-panel-alt: #f6f8fc;
+    --caw-vd-line:      #e3e8f0;
+    --caw-vd-txt:       #1a2233;
+    --caw-vd-muted:     #5a6b88;
+    --caw-vd-head:      var(--primary-color, #1e73be);
+    --caw-vd-head-txt:  var(--primary-text-color, #ffffff);
+}
+
+/* Dark values mirror the Customizer's own dark palette (theme_mods:
+   site_bg_color_dark #161b2c, dark_alter_color #192237,
+   dark_secondary_color #28375a, site_txt_color_dark #f2f2f2) so the
+   dashboard sits in the same night scheme as the rest of the site. */
+body.sp-night-mode-on .fes-vendor-dashboard-wrap,
+body.sp-night-mode-on #edd_user_commissions,
+body.sp-night-mode-on #edd_user_commissions_overview {
+    --caw-vd-panel:     #192237;
+    --caw-vd-panel-alt: #1e2a45;
+    --caw-vd-line:      #28375a;
+    --caw-vd-txt:       #f2f2f2;
+    --caw-vd-muted:     #9fb0d0;
+}
+
+/* -- 1. Table headers: one accent bar everywhere -------------------------- */
+#edd_user_commissions_overview table thead,
+#edd_user_commissions_overview table thead th,
+#edd_user_unpaid_commissions_table thead tr,
+#edd_user_paid_commissions_table thead tr,
+#edd_user_revoked_commissions_table thead tr,
+#edd_user_unpaid_commissions_table thead tr th,
+#edd_user_paid_commissions_table thead tr th,
+#edd_user_revoked_commissions_table thead tr th,
+#fes-product-list thead,
+#fes-product-list thead tr th,
+#fes-order-list thead,
+#fes-order-list thead tr th {
+    background: var(--caw-vd-head, #1e73be) !important;
+    color: var(--caw-vd-head-txt, #ffffff) !important;
+    border-color: transparent !important;
+}
+
+/* -- 2. Table bodies: panel + ink ---------------------------------------- */
+#edd_user_commissions_overview table tbody,
+#edd_user_unpaid_commissions_table tbody,
+#edd_user_paid_commissions_table tbody,
+#edd_user_revoked_commissions_table tbody,
+#fes-product-list tbody,
+#fes-order-list tbody {
+    background: var(--caw-vd-panel, #ffffff) !important;
+}
+
+#edd_user_commissions_overview table tbody tr td,
+#edd_user_unpaid_commissions_table tbody tr td,
+#edd_user_paid_commissions_table tbody tr td,
+#edd_user_revoked_commissions_table tbody tr td,
+#fes-product-list tbody tr td,
+#fes-order-list tbody tr td {
+    background: transparent !important;
+    color: var(--caw-vd-txt, #1a2233) !important;
+}
+
+/* Row rules: main.css sets `border-bottom: 2px solid` with the colour coming
+   from a global opacity mod, which reads as a hard black bar on dark. */
+#edd_user_unpaid_commissions_table tbody tr,
+#edd_user_paid_commissions_table tbody tr,
+#edd_user_revoked_commissions_table tbody tr,
+#fes-product-list tbody tr,
+#fes-order-list tbody tr {
+    border-bottom: 1px solid var(--caw-vd-line, #e3e8f0) !important;
+}
+#edd_user_unpaid_commissions_table tbody tr:last-child,
+#edd_user_paid_commissions_table tbody tr:last-child,
+#edd_user_revoked_commissions_table tbody tr:last-child,
+#fes-product-list tbody tr:last-child,
+#fes-order-list tbody tr:last-child {
+    border-bottom: none !important;
+}
+
+/* -- 3. "Total unpaid / paid / revoked" rows ----------------------------- */
+#edd_user_commissions_unpaid_total,
+#edd_user_commissions_paid_total,
+#edd_user_commissions_revoked_total {
+    background: var(--caw-vd-panel-alt, #f6f8fc) !important;
+    color: var(--caw-vd-txt, #1a2233) !important;
+    border-top: 1px solid var(--caw-vd-line, #e3e8f0) !important;
+}
+
+/* -- 4. Commissions pagination -------------------------------------------
+   paginate_links() output here carries no theme styling at all (main.css only
+   skins .fes-pagination), so it renders as bare links. Give it the same pill
+   treatment as the rest of the dashboard. */
+#edd_commissions_unpaid_pagination,
+#edd_commissions_paid_pagination,
+#edd_commissions_revoked_pagination {
+    padding: 18px 0 0;
+    overflow: hidden;
+}
+#edd_commissions_unpaid_pagination .page-numbers,
+#edd_commissions_paid_pagination .page-numbers,
+#edd_commissions_revoked_pagination .page-numbers {
+    display: inline-block;
+    padding: 6px 12px;
+    margin: 0 4px;
+    border-radius: 3px;
+    font-size: 15px;
+    font-weight: 700;
+    text-decoration: none;
+    background: var(--caw-vd-panel-alt, #e9edf7) !important;
+    color: var(--caw-vd-txt, #28375a) !important;
+    border: 1px solid var(--caw-vd-line, #e3e8f0) !important;
+}
+#edd_commissions_unpaid_pagination .page-numbers.current,
+#edd_commissions_paid_pagination .page-numbers.current,
+#edd_commissions_revoked_pagination .page-numbers.current {
+    background: var(--caw-vd-head, #1e73be) !important;
+    border-color: var(--caw-vd-head, #1e73be) !important;
+    color: var(--caw-vd-head-txt, #ffffff) !important;
+}
+
+/* -- 5 + 6. Orders and Products tabs -------------------------------------
+   These two lists are built from divs, not tables, and they need the
+   .fes-vendor-dashboard-wrap ancestor in the selector to outrank the rules
+   they compete with. Both opponents print in wp_head at priority 10, i.e.
+   AFTER this stylesheet's <link> (wp_print_styles runs at 8), so a
+   specificity TIE would hand the win to them — the ancestor breaks the tie:
+
+     text  vs  body.sp-night-mode-on *                              (0,2,1)
+     rows  vs  body.sp-night-mode-on .product--flex--fes:nth-of-type(odd|even)
+                                                                    (0,3,1)
+
+   ORDERS was genuinely broken — .mayofes--order--flex--item appears nowhere
+   in the theme's night CSS, so both its #fff and #edf0f7 rows went
+   light-on-light.
+
+   PRODUCTS was NOT broken: the theme covers odd AND even rows (even is
+   buried in the huge .has_mayosis_dark_bg selector list, at #28375a). It is
+   restyled here only so its zebra matches Orders — without that the two
+   lists stripe at different values and read as a mistake. */
+
+/* Orders */
+.fes-vendor-dashboard-wrap .mayofes--order--flex--item,
+.fes-vendor-dashboard-wrap .mayofes--order--flex--item:nth-of-type(odd),
+body.sp-night-mode-on .fes-vendor-dashboard-wrap .mayofes--order--flex--item,
+body.sp-night-mode-on .fes-vendor-dashboard-wrap .mayofes--order--flex--item:nth-of-type(odd) {
+    background: var(--caw-vd-panel, #ffffff) !important;
+    color: var(--caw-vd-txt, #1a2233) !important;
+    border-bottom: 1px solid var(--caw-vd-line, #e3e8f0) !important;
+}
+.fes-vendor-dashboard-wrap .mayofes--order--flex--item:nth-of-type(even),
+body.sp-night-mode-on .fes-vendor-dashboard-wrap .mayofes--order--flex--item:nth-of-type(even) {
+    background: var(--caw-vd-panel-alt, #edf0f7) !important;
+    color: var(--caw-vd-txt, #1a2233) !important;
+}
+.fes-vendor-dashboard-wrap .mayofes--order--flex--item:last-child {
+    border-bottom: none !important;
+}
+.fes-vendor-dashboard-wrap .mayofes-order-flex-data,
+body.sp-night-mode-on .fes-vendor-dashboard-wrap .mayofes-order-flex-data {
+    color: var(--caw-vd-txt, #1a2233) !important;
+}
+/* NB: links inside the order rows are left alone. .view-order-fes is
+   deliberately green in light mode, and in night mode the blanket
+   `body.sp-night-mode-on *` already paints every link #f2f2f2, which reads
+   correctly against the dark panel above. */
+/* #add-customer-message is styled as a solid accent button in section 13.
+   It used to be treated as the theme's bordered pill here, but that rule sat
+   at (1,3,1) and would have overridden section 13's colour in night mode. */
+
+/* Products */
+.fes-vendor-dashboard-wrap .product--flex--fes,
+.fes-vendor-dashboard-wrap .product--flex--fes:nth-of-type(odd),
+body.sp-night-mode-on .fes-vendor-dashboard-wrap .product--flex--fes,
+body.sp-night-mode-on .fes-vendor-dashboard-wrap .product--flex--fes:nth-of-type(odd) {
+    background: var(--caw-vd-panel, #ffffff) !important;
+    color: var(--caw-vd-txt, #1a2233) !important;
+}
+.fes-vendor-dashboard-wrap .product--flex--fes:nth-of-type(even),
+body.sp-night-mode-on .fes-vendor-dashboard-wrap .product--flex--fes:nth-of-type(even) {
+    background: var(--caw-vd-panel-alt, #edf0f7) !important;
+    color: var(--caw-vd-txt, #1a2233) !important;
+}
+.fes-vendor-dashboard-wrap .product--flex--fes,
+.fes-vendor-dashboard-wrap .product--flex--fes:nth-of-type(odd),
+.fes-vendor-dashboard-wrap .product--flex--fes:nth-of-type(even),
+body.sp-night-mode-on .fes-vendor-dashboard-wrap .product--flex--fes:nth-of-type(odd),
+body.sp-night-mode-on .fes-vendor-dashboard-wrap .product--flex--fes:nth-of-type(even) {
+    border-color: var(--caw-vd-line, #e3e8f0) !important;
+}
+.fes-vendor-dashboard-wrap .product--flex--fes .fes-product-list-td,
+body.sp-night-mode-on .fes-vendor-dashboard-wrap .product--flex--fes .fes-product-list-td {
+    color: var(--caw-vd-txt, #1a2233) !important;
+}
+/* NB: .fes-product-list-td a is left alone — those are the Edit / Delete
+   action pills, already skinned with var(--primary-color) by main.css. */
+
+/* -- 7. Overview tab: announcements box (bg:#fff, no night coverage) ----- */
+#fes-vendor-announcements {
+    background: var(--caw-vd-panel, #ffffff) !important;
+    color: var(--caw-vd-txt, #1a2233) !important;
+}
+#fes-vendor-announcements h4,
+#fes-vendor-announcements p { color: var(--caw-vd-txt, #1a2233) !important; }
+
+/* -- 8. Profile + submission forms ---------------------------------------
+   NOT a safety net — an active fix. essential.css blanks these to
+   `background:0 0`, but ONLY under .vendor-dasboard-template-main, and the
+   Vendor Dashboard page (id 746) uses page-template-full-width-template.
+   That class is never on the page, so the raw #fcfcfc survives and the
+   Profile / New Product field labels vanish in night mode. (The same scoping
+   miss disables the theme's own night rules at
+   mayosis_custom_css_loader.php:2138 and :2196.)
+   Night mode only; light mode is left exactly as the theme ships it. */
+body.sp-night-mode-on .fes-form.fes-submission-form-div,
+body.sp-night-mode-on .fes-profile-form {
+    background: transparent !important;
+}
+
+/* -- 9. Hover states ------------------------------------------------------
+   Reported by the vendor: hovering a sidebar link turns the row white with
+   white text.
+
+   ROOT CAUSE IS A THEME TYPO, not a missing rule. mayosis_custom_css_loader.php
+   builds a night-mode rule whose selector list ends with a stray comma:
+
+     … .mayosis-woo-single-hero a:hover,{ background:#28375a!important; … }
+                                       ^ trailing comma
+
+   An invalid selector in the list invalidates the WHOLE list, so the browser
+   throws the entire rule away. That one rule was the night override for eight
+   selectors. With it gone, main.css' `nav.fes-vendor-menu ul li:hover
+   {background:#fff}` (inside @media min-width:991px) wins unopposed, and the
+   blanket `*` keeps the label at #f2f2f2 — white on white.
+
+   Also killed by the same typo, and restored below where it affects the
+   dashboard: .select2-results__option[aria-selected=true] (the Add Product
+   category/tag pickers). Still dead site-wide, NOT fixed here because they sit
+   outside the dashboard: #grid-cat-edd a.cat--grid--stl-2:hover,
+   .social-button a i, .woocommerce-error/info/message, and
+   .mayosis-woo-single-style-one .mayosis-woo-single-hero a:hover.
+
+   The sidebar is dark in BOTH modes — the loader's unscoped
+   `.fes_dashboard_menu{background:#26264d}` outruns main.css' light #e9edf7 —
+   so hover is a translucent lift rather than a fixed colour. That also means
+   it survives someone changing the dashboard colour in the Customizer. */
+.fes-vendor-dashboard-wrap nav.fes-vendor-menu ul li:hover,
+body.sp-night-mode-on .fes-vendor-dashboard-wrap nav.fes-vendor-menu ul li:hover {
+    background: rgba(255, 255, 255, 0.10) !important;
+}
+.fes-vendor-dashboard-wrap nav.fes-vendor-menu ul li:hover > a,
+.fes-vendor-dashboard-wrap nav.fes-vendor-menu ul li:hover > a span,
+body.sp-night-mode-on .fes-vendor-dashboard-wrap nav.fes-vendor-menu ul li:hover > a,
+body.sp-night-mode-on .fes-vendor-dashboard-wrap nav.fes-vendor-menu ul li:hover > a span {
+    color: #ffffff !important;
+}
+
+/* select2 renders its dropdown in a portal on <body>, OUTSIDE the dashboard
+   wrapper — so this one must NOT be scoped to .fes-vendor-dashboard-wrap.
+   The theme already darkens .select2-dropdown; only the selected row was
+   left on select2's stock #ddd, which vanishes under the blanket #f2f2f2. */
+body.sp-night-mode-on .select2-container--default .select2-results__option[aria-selected=true] {
+    background: #28375a !important;
+    color: #f2f2f2 !important;
+}
+
+/* Commissions pagination pills had no hover of their own (section 4 above
+   builds them from scratch). */
+#edd_commissions_unpaid_pagination a.page-numbers:hover,
+#edd_commissions_paid_pagination a.page-numbers:hover,
+#edd_commissions_revoked_pagination a.page-numbers:hover {
+    background: var(--caw-vd-head, #1e73be) !important;
+    border-color: var(--caw-vd-head, #1e73be) !important;
+    color: var(--caw-vd-head-txt, #ffffff) !important;
+}
+
+/* -- 10. Overview stat cards (Dashboard tab) ------------------------------
+   Reported: the boxes cut off their figures.
+
+   essential.css:3219-3241 gives .mayosis-v-box `padding:30px` +
+   `overflow:hidden`, and a FIXED `h4{font-size:2.2rem}`. With EDD Commissions
+   active the theme switches the row to row-cols-md-5 (frontend-dashboard.php),
+   so each card is ~160px wide and the figure is clipped — "$2,926.75" renders
+   as "$2,926.7". That misstates money, so it is a correctness bug, not a
+   cosmetic one.
+
+   `overflow:hidden` has to stay: it clips the 168px decorative icon that is
+   absolutely positioned at top:-25px/right:-50px. So the figure is scaled to
+   the column instead, and allowed to break rather than be silently truncated
+   if it still will not fit. */
+.fes-vendor-dashboard-wrap .mayosis-vendor-boxes > [class*="col"] { min-width: 0; }
+.fes-vendor-dashboard-wrap .mayosis-v-box {
+    padding: 24px 18px !important;
+    min-width: 0;
+}
+.fes-vendor-dashboard-wrap .mayosis-v-box h4 {
+    font-size: clamp(0.9rem, 1vw + 0.3rem, 2rem) !important;
+    line-height: 1.2 !important;
+    /* Last resort only. A broken figure is ugly; a clipped one is wrong. */
+    overflow-wrap: break-word;
+}
+/* The icon is `z-index:0` + absolute, i.e. a positioned element painting over
+   static siblings. Lift the text so a long figure can never slide under it. */
+.fes-vendor-dashboard-wrap .mayosis-v-box h4,
+.fes-vendor-dashboard-wrap .mayosis-v-box span {
+    position: relative;
+    z-index: 1;
+}
+
+/* -- 11. "Export Paid Commissions" form -----------------------------------
+   main.css sets `#edd_commissions_export form{display:flex}`, but the button
+   is .edd-submit, which carries `width:100%` AND `min-width:100%` from the
+   global button rule. A flex item that cannot shrink below 100% squashes the
+   month/year selects to slivers and overflows the container to the right.
+   Scoped to this one form, so the global .edd-submit style is untouched
+   everywhere else on the site. */
+#edd_commissions_export form {
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    max-width: 620px;
+    margin: 0 auto;
+}
+#edd_commissions_export form select {
+    flex: 0 1 170px;
+    min-width: 0;
+    margin: 0 !important;
+}
+#edd_commissions_export form input[type="submit"] {
+    flex: 0 0 auto;
+    width: auto !important;
+    min-width: 0 !important;
+    padding: 12px 28px !important;
+}
+
+/* -- 12. Remaining casualties of the trailing-comma rule (see section 9) ---
+   Outside the vendor dashboard, so kept separate and deliberately minimal —
+   these restore the parent theme's OWN intended values, nothing new.
+
+   Not restored: .woocommerce-error / -info / -message and
+   .mayosis-woo-single-style-one .mayosis-woo-single-hero a:hover. WooCommerce
+   is not installed on this site, so that markup never renders. */
+
+/* Category grid: the base night rule still matches while hovered, so the card
+   simply stopped responding to hover. Legible either way — this restores the
+   feedback. */
+body.sp-night-mode-on #grid-cat-edd a.cat--grid--stl-2:hover {
+    background: #28375a !important;
+    color: #ffffff !important;
+}
+
+/* Social share icons: main.css gives them `background:#c2c9cc` with dark ink.
+   Night mode forces the ink to #f2f2f2 via the blanket `*`, leaving near-white
+   glyphs on light grey (~1.4:1). This was the one genuinely illegible
+   casualty. */
+body.sp-night-mode-on .social-button a i {
+    background: #28375a !important;
+    color: #ffffff !important;
+}
+/* …but NOT the product-card hover overlay, which is deliberately transparent
+   over the artwork. main.css asserts that at (0,2,2) and the rule above is
+   (0,2,3), so it would otherwise win and stamp grey boxes onto every product
+   card. Re-assert the theme's intent at (0,3,3). */
+body.sp-night-mode-on .product-hover-social-share .social-button a,
+body.sp-night-mode-on .product-hover-social-share .social-button a i {
+    background: 0 0 !important;
+    border: none !important;
+    color: #ffffff !important;
+}
+
+/* -- 13. Orders row: fit the extra plugin columns -------------------------
+   The theme sizes each cell `flex:1; padding:0 32px` and lets the row wrap
+   (main.css @media min-width:768px). That budgets for the six columns the
+   theme ships. edd-message adds a Message column and edd-simple-shipping a
+   Shipping one, taking it to eight — 8 x 64px of UNSHRINKABLE padding is
+   512px, so the last cell is pushed onto a second line.
+
+   Trimming the gutters buys that back. Paired with the child-theme override
+   at fes_templates/frontend-orders.php, which retags edd-message's <td> as a
+   flex cell so it lands inside the row at all. */
+@media (min-width: 992px) {
+    .fes-vendor-dashboard-wrap .mayofes--order--flex--item { padding: 14px 10px !important; }
+    .fes-vendor-dashboard-wrap .mayofes-order-flex-data {
+        padding: 0 12px !important;
+        /* NOT min-width:0. That would let a column be sized narrower than its
+           own longest word, and the browser then breaks the word to fit —
+           which chopped month names in half ("Decembe / r 15, 2025").
+           min-content is the correct floor: never narrower than the longest
+           word it has to show. The customer column opts out below, because
+           an email is one long token and must be allowed to break. */
+        min-width: min-content !important;
+    }
+    .fes-vendor-dashboard-wrap .mayofes-order-flex-data:first-child {
+        min-width: 0 !important;
+    }
+}
+.fes-vendor-dashboard-wrap .mayofes-order-flex-data form { margin: 0; }
+.fes-vendor-dashboard-wrap #add-customer-message {
+    background: var(--primary-color, #1e73be) !important;
+    color: var(--primary-text-color, #ffffff) !important;
+    border: none !important;
+    border-radius: 3px;
+    white-space: nowrap;
+    padding: 8px 14px !important;
+    font-size: 13px !important;
+    line-height: 1.2 !important;
+    width: auto !important;
+    min-width: 0 !important;
+}
+
+/* -- 14. The 1200-1289px dead band ----------------------------------------
+   PRE-EXISTING, not caused by anything above — verified by rendering this
+   page with the child stylesheet removed, where it is strictly worse
+   (figures clipped to "$2", the export button off-screen entirely).
+
+   Same root cause as section 8: at min-width:1200px the theme sets an
+   UNSCOPED `#fes-vendor-dashboard{width:980px}`, but the two rules that make
+   a fixed 980px column work — `.vendor-dasboard-template-main
+   .fes_dashboard_menu{position:fixed;width:20%}` and
+   `.vendor-dasboard-template-main #fes-vendor-dashboard{margin-left:22%}` —
+   are scoped to a class this page does not carry. The sidebar stays in flow
+   and ends up eating ~45% of the row, crushing the content column.
+
+   Deliberately bounded to the exact failing band. 1300px, 1366px, 1400px and
+   1920px were all verified correct WITHOUT this block, so it is confined to
+   the range that is broken and cannot regress the ones that are not. */
+@media (min-width: 1200px) and (max-width: 1289px) {
+    .fes-vendor-dashboard-wrap { gap: 24px; }
+    .fes-vendor-dashboard-wrap .fes_dashboard_menu {
+        flex: 0 0 210px !important;
+        width: 210px !important;
+    }
+    .fes-vendor-dashboard-wrap #fes-vendor-dashboard {
+        width: auto !important;
+        max-width: none !important;
+        flex: 1 1 auto !important;
+        min-width: 0;
+    }
+}
+
+/* -- 15. Orders row: long values and the button column ---------------------
+   Follow-up to section 13. `min-width:0` there is what lets eight columns fit
+   on one line, but it also lets a cell shrink BELOW its min-content — and a
+   customer email is one unbreakable token, so it spilled sideways over the
+   Order and Amount columns instead of wrapping.
+
+   Allow those long tokens to break, and give the customer column a larger
+   share since it holds the longest values. */
+/* break-word only: a word too wide for the column is broken, but min-content
+   is unchanged, so the other columns keep their natural width. */
+.fes-vendor-dashboard-wrap .mayofes-order-flex-data {
+    overflow-wrap: break-word;
+    /* Deliberately NOT `word-break: break-word` here. Despite the name it is
+       not a mild fallback — the spec defines it as normal + overflow-wrap:
+       anywhere, so it shrinks min-content too and re-breaks month names. */
+}
+/* Aggressive breaking is confined to the customer column, the only one that
+   holds a long unbreakable token. */
+.fes-vendor-dashboard-wrap .mayofes-order-flex-data:first-child {
+    word-break: break-word;      /* legacy Safari */
+    overflow-wrap: anywhere;
+}
+@media (min-width: 992px) {
+    .fes-vendor-dashboard-wrap .mayofes-order-flex-data:first-child {
+        flex: 2 1 0 !important;
+    }
+    /* The message button is a fixed-size control, not fluid text. Left in the
+       shared 1-fraction pool it was sized narrower than the button itself, so
+       the button overhung the row's rounded right edge. Size the cell to its
+       content and keep it off the edge. */
+    .fes-vendor-dashboard-wrap .mayofes-order-flex-data:last-child {
+        flex: 0 0 auto !important;
+        width: auto !important;
+        padding-right: 6px !important;
+    }
+}
