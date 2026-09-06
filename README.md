@@ -1,6 +1,6 @@
 # Mayosis Child — EDD Home, Product, Checkout & Auth
 
-A WordPress child theme for [Mayosis](https://themeforest.net/item/mayosis-digital-marketplace-wordpress-theme/26568956) that replaces the default Easy Digital Downloads **home page**, **single product** page and **checkout** with a polished, conversion-focused design, and adds **Cloudflare Turnstile** protection plus a dark-mode fix to the theme's **login/registration popup** — without touching the parent theme. Verified on **Mayosis 6.0**.
+A WordPress child theme for [Mayosis](https://themeforest.net/item/mayosis-digital-marketplace-wordpress-theme/26568956) that replaces the default Easy Digital Downloads **home page**, **single product** page and **checkout** with a polished, conversion-focused design, and adds **Cloudflare Turnstile** protection plus a dark-mode fix to the theme's **login/registration popup** — without touching the parent theme. It also wires up **Trustpilot review invitations** for EDD, which neither Trustpilot nor EDD supports natively (see [Part 6](#part-6--trustpilot-afs-review-invitations-edd)). Verified on **Mayosis 6.0**.
 
 ---
 
@@ -215,6 +215,84 @@ If the plugin is ever removed entirely, `functions.php` registers `[cryptocurren
 
 ---
 
+## Part 6 — Trustpilot AFS Review Invitations (EDD)
+
+Automatically invites customers to leave a Trustpilot review when an EDD order completes.
+
+**There is no supported way to do this out of the box.** Trustpilot's own WordPress plugin (`trustpilot-reviews`) is a *WooCommerce* build — it contains zero EDD code paths and will never fire on an EDD order. Trustpilot's [integrations directory](https://business.trustpilot.com/partners/integrations) lists Adobe Commerce, BigCommerce, Shopify, PrestaShop and OpenCart, but no EDD. EDD's own [extension catalogue](https://easydigitaldownloads.com/downloads/) has no Trustpilot integration either — its Reviews extension is an on-site review system, unrelated. The usual advice is a third-party automation service (Zapier/Zoho Flow) or Trustpilot's Invitation API.
+
+This is roughly 40 lines in `functions.php` instead.
+
+### Why a trigger email, not a Bcc
+
+Trustpilot's documented Automatic Feedback Service works by **Bcc'ing your order confirmation** to a unique `@invite.trustpilot.com` address. For EDD that is a bad trade:
+
+- **The EDD receipt contains live download links.** Bcc'ing it hands a third party working URLs to your paid deliverables.
+- **The receipt is template-processed**, so a `<script>` tag surviving intact is not something to bet on — and it would fail silently.
+
+Trustpilot supports an alternative for platforms with no Bcc field: send a **purpose-built email addressed to the AFS address**, identifying the customer in a structured-data snippet. The mechanism that makes this work:
+
+> **`recipientEmail` in the snippet always takes precedence over the `To:` header.**
+
+So Trustpilot invites the *buyer* even though the message was addressed to Trustpilot. The customer receives nothing extra, and no download link ever leaves the site.
+
+```html
+<script type="application/json+trustpilot">
+{"recipientName":"…","recipientEmail":"…","referenceId":"…"}
+</script>
+```
+
+> The published guides all wrap this snippet in `<!-- -->` to hide it from customers. **This implementation deliberately does not.** Nobody but Trustpilot's parser ever opens the message, and a customer name containing `--` would close the comment early and silently void the payload.
+
+### How It Works
+
+- Hooks **`edd_after_order_actions`** — the same hook EDD's own receipt uses. It fires once per completed order and passes the `Order` and `Customer` objects.
+- That hook is **deferred to WP-Cron**, so nothing is added to the checkout request.
+- Because cron retries, an `_caw_tp_afs_sent` order meta key guards against re-inviting. It is stamped **only on `wp_mail()` success**, so a transient SMTP failure retries instead of being silently swallowed.
+- Recipient name falls back in three steps: billing first/last name → the EDD customer record → the email's local part.
+- `referenceId` uses `$order->get_number()`, so it respects sequential order numbers if you enable them.
+
+### Configuration
+
+```php
+// wp-config.php — NOT the theme
+define( 'CAW_TRUSTPILOT_AFS_EMAIL', 'yourdomain.com+xxxxxxxxxx@invite.trustpilot.com' );
+```
+
+Get the address from **Trustpilot → Review Invitations → Automatic Feedback Service**.
+
+Two reasons it belongs in `wp-config.php`:
+
+1. **It is effectively a write token.** Anyone holding it can inject review invitations into your Trustpilot account, so it must not land in a public repo.
+2. **Its absence is the staging kill-switch.** The code no-ops entirely when the constant is undefined — leave it out of your dev/staging `wp-config.php` and test orders can never invite real customers.
+
+Invitation timing is configured **Trustpilot-side** in the business panel; nothing is scheduled in WordPress.
+
+### Filters
+
+| Filter | Purpose |
+|---|---|
+| `caw_trustpilot_afs_payload` | Modify the snippet payload before sending (`$payload, $order, $customer`) |
+
+Product reviews are a paid Trustpilot tier and are off by default. To add them, append a `productSkus` array via that filter:
+
+```php
+add_filter( 'caw_trustpilot_afs_payload', function ( $payload, $order ) {
+    $skus = array();
+    foreach ( $order->get_items() as $item ) {
+        $skus[] = (string) $item->product_id; // or the EDD SKU, if you enable SKUs
+    }
+    $payload['productSkus'] = $skus;
+    return $payload;
+}, 10, 2 );
+```
+
+### Verifying it fired
+
+Nobody reads this email, so it leaves two traces: the `_caw_tp_afs_sent` order meta (a UTC timestamp), and your mail log's entry for a send to `…@invite.trustpilot.com`. The invitation itself appears later, after whatever delay the business panel is set to.
+
+---
+
 ## Global Palette
 
 Site-wide accent colour is unified to **`#1e73be`** (matching the product/checkout pages). This is set in the **theme Customizer**, not in this repo, since Mayosis stores it as a theme mod:
@@ -403,6 +481,8 @@ define( 'EDD_SLUG', 'products' ); // change to 'downloads', 'shop', etc.
 
 Set your business unit / template in `caw_trustpilot_widget()` in `functions.php` (`data-businessunit-id`, `data-template-id`, `data-token`, review URL). The widget renders the live rating on your verified domain.
 
+This is the on-page *widget* only. For automatic review **invitations** on completed orders, see [Part 6](#part-6--trustpilot-afs-review-invitations-edd) — that one is configured in `wp-config.php`, not here.
+
 ### Trust Badge Text (checkout)
 
 Edit the strings in `caw_checkout_inline_js()` in `functions.php`:
@@ -453,7 +533,7 @@ Sourced from the Mayosis Customizer (**Appearance → Customize → Dark Mode**)
 
 | File | Purpose |
 |---|---|
-| `functions.php` | All PHP hooks/helpers — home + single-product template routing, price model, tabs, reviews, related products, TrustPilot, checkout enhancements |
+| `functions.php` | All PHP hooks/helpers — home + single-product template routing, price model, tabs, reviews, related products, TrustPilot widget + AFS invitations, checkout enhancements |
 | `style.css` | All CSS — home (`.cawhome`) + product page + checkout + auth popup, light/dark, responsive |
 | `front-page.php` | Custom dynamic home page (routed via `template_include`) |
 | `caw-single-download.php` | Custom single-product template (routed via `template_include`) |
@@ -471,6 +551,7 @@ Each part is independent:
 - **Legacy redirects** — remove `caw_legacy_url_redirects`, or filter the map to empty with `caw_legacy_redirect_map`. It only ever acts on a 404, so removing it just restores the 404.
 - **Asset trimming** — delete `caw_drop_duplicate_child_stylesheet` and/or `caw_disable_frontend_emoji`; both simply stop taking effect.
 - **Cloudflare caching** — disable the Cache Rule and purge everything. Nothing in this repo depends on it.
+- **Trustpilot AFS** — remove `CAW_TRUSTPILOT_AFS_EMAIL` from `wp-config.php` and the hook no-ops immediately; no invitations are sent and nothing else changes. Delete `caw_trustpilot_afs_send_trigger` to remove it entirely.
 - **Turnstile** — clear the keys (Settings → Cloudflare Turnstile, or the `wp-config.php` constants) and every guard no-ops. To remove it completely, drop the `require_once` for `caw-turnstile.php` from `functions.php`. The popup's dark-mode fix lives in `style.css` and is unaffected either way.
 
 ## License

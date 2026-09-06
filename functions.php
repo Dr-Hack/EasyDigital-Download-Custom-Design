@@ -1400,3 +1400,82 @@ function caw_disable_frontend_emoji() {
         2
     );
 }
+
+/* ---- Trustpilot Automatic Feedback Service (AFS) ------------------------
+   Trigger-email method, NOT a Bcc on the customer receipt.
+
+   AFS normally works by Bcc'ing the order confirmation to a Trustpilot
+   address, but that would hand Trustpilot's inbox the live EDD download
+   links the receipt carries. Trustpilot supports an alternative: send a
+   purpose-built email TO the AFS address instead, and name the customer in
+   a structured-data snippet. `recipientEmail` in that snippet always takes
+   precedence over the To: header, so Trustpilot invites the buyer even
+   though the message was addressed to Trustpilot.
+
+   Nobody ever opens this email but Trustpilot's parser, so the snippet is
+   NOT wrapped in the <!-- --> the published guides use to hide it from
+   customers — a buyer name containing "--" would close that comment early
+   and silently void the payload.
+
+   CAW_TRUSTPILOT_AFS_EMAIL lives in wp-config.php, not here: this theme is
+   a public repo, and the address is effectively a write token for the
+   Trustpilot account. Leaving it undefined is also the dev kill-switch, so
+   test orders can never invite real people. */
+add_action( 'edd_after_order_actions', 'caw_trustpilot_afs_send_trigger', 10000, 3 );
+function caw_trustpilot_afs_send_trigger( $order_id, $order, $customer ) {
+    if ( ! defined( 'CAW_TRUSTPILOT_AFS_EMAIL' ) || ! CAW_TRUSTPILOT_AFS_EMAIL ) {
+        return;
+    }
+    if ( ! is_object( $order ) || 'complete' !== $order->status ) {
+        return;
+    }
+
+    $email = sanitize_email( $order->email );
+    if ( ! is_email( $email ) ) {
+        return;
+    }
+
+    /* edd_after_order_actions is deferred to cron, and cron retries. Without
+       this guard a retry re-invites a customer who already got one. */
+    if ( edd_get_order_meta( $order_id, '_caw_tp_afs_sent', true ) ) {
+        return;
+    }
+
+    /* Billing name first, then the customer record, then the email local
+       part — AFS personalises the invitation with whatever we send. */
+    $address = $order->get_address();
+    $name    = trim( $address->first_name . ' ' . $address->last_name );
+    if ( '' === $name && ! empty( $customer->name ) ) {
+        $name = $customer->name;
+    }
+    if ( '' === $name ) {
+        $name = ucfirst( strstr( $email, '@', true ) );
+    }
+
+    /* Filter seam for "productSkus" => array( ... ) if Product Reviews is
+       ever added to the Trustpilot plan. Service reviews need none of it. */
+    $payload = apply_filters(
+        'caw_trustpilot_afs_payload',
+        array(
+            'recipientName'  => $name,
+            'recipientEmail' => $email,
+            'referenceId'    => (string) $order->get_number(),
+        ),
+        $order,
+        $customer
+    );
+
+    $sent = wp_mail(
+        CAW_TRUSTPILOT_AFS_EMAIL,
+        'Order ' . $order->get_number(),
+        '<html><body><script type="application/json+trustpilot">'
+        . wp_json_encode( $payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE )
+        . '</script></body></html>',
+        array( 'Content-Type: text/html; charset=UTF-8' )
+    );
+
+    /* Only stamp on success, so a transient SMTP failure retries. */
+    if ( $sent ) {
+        edd_update_order_meta( $order_id, '_caw_tp_afs_sent', current_time( 'mysql', true ) );
+    }
+}
