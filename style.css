@@ -1083,7 +1083,9 @@ body.sp-night-mode-on .cawhome{
 .ch-center{text-align:center;margin-top:38px}.ch-mt{margin-top:34px}
 .ch-sec-head{text-align:center;max-width:660px;margin:0 auto 44px}
 .ch-sec-head.ch-mb-sm{margin-bottom:14px}
-.ch-sec-head h2{font-size:34px;font-weight:800;letter-spacing:-.5px;margin-bottom:10px}
+/* h1 shares these: on /crypto-news/ the section head carries the page's H1
+   (the homepage's H1 lives in the hero, so nothing there changes). */
+.ch-sec-head h1,.ch-sec-head h2{font-size:34px;font-weight:800;letter-spacing:-.5px;margin-bottom:10px}
 .ch-sec-head p{color:var(--ch-muted);font-size:16px}
 .ch-grad{background:linear-gradient(95deg,#4a9fe0,#1e73be);-webkit-background-clip:text;background-clip:text;color:transparent}
 .ch-acc{color:var(--ch-acc-l)}
@@ -1190,7 +1192,9 @@ body.sp-night-mode-on .cawhome{
 .ch-post-img{height:170px;display:flex;align-items:center;justify-content:center;font-size:38px;color:#fff;background-size:cover;background-position:center}
 .ch-post-body{padding:18px 20px 22px}
 .ch-post-tag{font-size:12px;font-weight:700;color:var(--ch-acc-l);text-transform:uppercase;letter-spacing:.5px}
-.ch-post-body h3{font-size:18px;font-weight:700;line-height:1.35;margin:8px 0 10px;color:var(--ch-txt)}
+/* News cards are h2 (the page H1 is the section head); homepage blog cards stay
+   h3 under their own h2 section head. Same card, so both tags style alike. */
+.ch-post-body h2,.ch-post-body h3{font-size:18px;font-weight:700;line-height:1.35;margin:8px 0 10px;color:var(--ch-txt)}
 .ch-post-meta{color:var(--ch-muted2);font-size:13px}
 .ch-faq-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;max-width:900px;margin:0 auto}
 .ch-faq-q{display:flex;align-items:center;gap:14px;background:var(--ch-card);border:1px solid var(--ch-line);border-radius:12px;padding:18px 20px;transition:.18s}

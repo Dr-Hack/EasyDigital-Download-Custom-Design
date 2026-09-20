@@ -108,7 +108,8 @@ $caw_news_grads = array( '#1e73be,#0f213d', '#7c3aed,#2a1a52', '#f59e0b,#4a2d05'
 <section class="ch-sec"><div class="ch-wrap">
 
 	<div class="ch-sec-head">
-		<h2><?php echo esc_html( get_the_title() ); ?></h2>
+		<?php /* The page's only H1 — this template renders no other page title. */ ?>
+		<h1><?php echo esc_html( get_the_title() ); ?></h1>
 		<p>Headlines from across the crypto press, refreshed throughout the day.</p>
 	</div>
 
@@ -132,7 +133,7 @@ $caw_news_grads = array( '#1e73be,#0f213d', '#7c3aed,#2a1a52', '#f59e0b,#4a2d05'
 					?>><?php echo $caw_news['image'] ? '' : '<i class="fas fa-newspaper"></i>'; ?></div>
 					<div class="ch-post-body">
 						<span class="ch-post-tag"><?php echo esc_html( $caw_news['source'] ); ?></span>
-						<h3><?php echo esc_html( $caw_news['title'] ); ?></h3>
+						<h2><?php echo esc_html( $caw_news['title'] ); ?></h2>
 						<div class="ch-post-meta">
 							<?php
 							echo $caw_news['timestamp']
