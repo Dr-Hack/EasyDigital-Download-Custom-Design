@@ -224,6 +224,10 @@ add_action( 'wp_enqueue_scripts', 'caw_dedupe_auth_modal', 20 );
  *
  * Injected immediately before the theme's own auth script, so the move is done
  * before anything binds.
+ *
+ * caw_render_account_element() now does this server-side (one copy, printed in
+ * the footer), so normally this finds a single modal already in <body>. Kept as
+ * the fallback for when that can't locate the popup in the parent's markup.
  */
 function caw_dedupe_auth_modal() {
 	if ( is_user_logged_in() || ! wp_script_is( 'msv-ajax-auth', 'enqueued' ) ) {
@@ -296,6 +300,66 @@ function caw_dedupe_auth_modal() {
 		. '}());',
 		'after'
 	);
+}
+
+/**
+ * Render the header "account" element with the auth popup lifted out of it.
+ *
+ * Called from the child override of `includes/header/header-elements/header-account.php`.
+ * The parent template prints the login button AND the whole `#msv-auth-modal`,
+ * once per header region — so the raw HTML carried two copies of the popup,
+ * both ahead of the page's H1, and crawlers that don't run JavaScript read
+ * "Crypto Awaz" (h2) and "Reset Password" (h3) twice before the actual content.
+ * caw_dedupe_auth_modal() only fixes that after scripts run.
+ *
+ * Here the button stays where the theme put it, the first copy of the popup is
+ * kept for the footer, and any later copy is dropped. The popup's headings
+ * become divs: they label a hidden dialog, not the page (`aria-labelledby`
+ * points at the id, which is kept, so the dialog is still named).
+ *
+ * If the parent's markup ever changes so the popup can't be found, the element
+ * is printed untouched and the JS dedupe carries on covering it.
+ */
+function caw_render_account_element() {
+	ob_start();
+	require get_template_directory() . '/includes/header/header-elements/header-account.php';
+	$html = ob_get_clean();
+
+	$start = strpos( $html, '<div id="msv-auth-modal"' );
+	$close = '<!-- #msv-auth-modal -->';
+	$end   = false === $start ? false : strpos( $html, $close, $start );
+
+	if ( false === $end ) {
+		echo $html; // phpcs:ignore WordPress.Security.EscapeOutput -- theme template output.
+		return;
+	}
+
+	$end += strlen( $close );
+	// The forgot-overlay <style> block that follows the popup travels with it.
+	if ( preg_match( '#\G\s*<style>.*?</style>#s', $html, $m, 0, $end ) ) {
+		$end += strlen( $m[0] );
+	}
+
+	if ( ! isset( $GLOBALS['caw_auth_modal'] ) ) {
+		$modal = substr( $html, $start, $end - $start );
+		$modal = preg_replace( '#<h([1-6])\b#i', '<div data-caw-h="$1"', $modal );
+		$modal = preg_replace( '#</h[1-6]\s*>#i', '</div>', $modal );
+
+		$GLOBALS['caw_auth_modal'] = $modal;
+	}
+
+	echo substr( $html, 0, $start ) . substr( $html, $end ); // phpcs:ignore WordPress.Security.EscapeOutput -- theme template output.
+}
+
+add_action( 'wp_footer', 'caw_print_auth_modal', 5 );
+/**
+ * Print the popup collected by caw_render_account_element(). Priority 5 puts it
+ * ahead of the footer scripts (20), which expect it to exist when they run.
+ */
+function caw_print_auth_modal() {
+	if ( ! empty( $GLOBALS['caw_auth_modal'] ) ) {
+		echo $GLOBALS['caw_auth_modal']; // phpcs:ignore WordPress.Security.EscapeOutput -- theme template output.
+	}
 }
 
 add_filter( 'render_block', 'caw_social_login_on_account_blocks', 10, 2 );

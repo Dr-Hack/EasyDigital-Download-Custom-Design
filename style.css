@@ -1458,6 +1458,19 @@ body.sp-night-mode-on .msv-auth-panels::-webkit-scrollbar-thumb {
     background: rgba(125, 139, 165, 0.55);
 }
 
+/* The popup's h2/h3 are printed as divs (caw_render_account_element) so they
+   stay out of the page's heading outline. These restore what the heading tags
+   used to get from the plugin + theme: the title keeps its own class rules, the
+   "Reset Password" line lost `.msv-auth-panel__intro h3`. */
+.msv-auth-modal [data-caw-h] { font-family: Inter, sans-serif; }
+.msv-auth-panel__intro [data-caw-h] {
+    font-size: 17px;
+    font-weight: 700;
+    line-height: 1.35;
+    color: #1f2937;
+    margin: 0 0 5px;
+}
+
 /* Short viewports (laptops at 768px, landscape phones): trim the chrome so the
    form itself keeps as much room as possible before scrolling kicks in. */
 @media (max-height: 800px) {
@@ -1567,7 +1580,8 @@ body.sp-night-mode-on .msv-pw-strength__label { color: #93a1b8 !important; }
 
 /* Forgot-password overlay — hard-coded #fff in the parent template's <style> */
 body.sp-night-mode-on .msv-auth-forgot-overlay { background: #192237 !important; }
-body.sp-night-mode-on .msv-auth-panel__intro h3 { color: #ffffff !important; }
+body.sp-night-mode-on .msv-auth-panel__intro h3,
+body.sp-night-mode-on .msv-auth-panel__intro [data-caw-h] { color: #ffffff !important; }
 body.sp-night-mode-on .msv-auth-panel__intro p { color: #93a1b8 !important; }
 body.sp-night-mode-on .msv-auth-panel__intro-icon {
     background: rgba(30, 115, 190, 0.16) !important;
