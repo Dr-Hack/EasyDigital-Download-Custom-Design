@@ -1543,3 +1543,147 @@ function caw_trustpilot_afs_send_trigger( $order_id, $order, $customer ) {
         edd_update_order_meta( $order_id, '_caw_tp_afs_sent', current_time( 'mysql', true ) );
     }
 }
+
+/* =============================================================================
+   SEO — KEEP TRANSACTIONAL AND PER-USER PAGES OUT OF SEARCH
+
+   Checkout, the purchase confirmation, the invoice, the profile editor, the
+   vendor dashboard and MailPoet's confirmation screens were all indexable
+   (AIOSEO emitted only `max-image-preview:large`) AND listed in
+   page-sitemap.xml. They are thin, duplicate-ish, and several are per-user
+   screens — useless in search results and a waste of crawl budget.
+
+   Two filters are needed, not one: this site runs AIOSEO **free**, and only
+   AIOSEO Pro drops noindexed posts from its sitemap (see the $whereClause on
+   Content.php:933). So noindexing a page does not remove it from the sitemap.
+
+   `noindex` without `nofollow` on purpose: these pages still link into the
+   store, and there is no reason to cut those paths.
+
+   Deliberately still indexed: /about-us/newsletter-signup/ ("Join the Club")
+   is a real marketing landing page, and /account/discord-bot-privacy-policy/
+   is a genuine policy page. Both are children of pages listed below, so the
+   match is exact-path, never a prefix.
+   ============================================================================= */
+
+add_filter( 'aioseo_robots_meta', 'caw_noindex_private_pages' );
+/**
+ * Add `noindex` to the AIOSEO robots tag on the pages listed below.
+ *
+ * Runs on every front-end request, so it resolves nothing it doesn't have to:
+ * EDD's own page IDs come from its settings, and everything else is matched on
+ * the path WordPress already knows for the current post.
+ *
+ * @param  array $attributes AIOSEO's robots attributes, keyed by directive.
+ * @return array
+ */
+function caw_noindex_private_pages( $attributes ) {
+	if ( ! is_page() ) {
+		return $attributes;
+	}
+
+	$id = get_queried_object_id();
+
+	if ( $id && ( in_array( $id, caw_edd_private_page_ids(), true )
+		|| in_array( get_page_uri( $id ), caw_private_page_paths(), true ) ) ) {
+		$attributes['noindex'] = 'noindex';
+	}
+
+	return $attributes;
+}
+
+add_filter( 'aioseo_sitemap_posts', 'caw_sitemap_drop_private_pages', 10, 2 );
+/**
+ * Drop the same pages from page-sitemap.xml.
+ *
+ * Only fires when a sitemap is generated, so resolving every path here is fine.
+ * Entries are matched on their `loc` rather than an ID, because that is all the
+ * entry carries by this point.
+ *
+ * @param  array  $entries  Sitemap entries.
+ * @param  string $postType Post type being generated.
+ * @return array
+ */
+function caw_sitemap_drop_private_pages( $entries, $postType ) {
+	if ( 'page' !== $postType || empty( $entries ) ) {
+		return $entries;
+	}
+
+	$excluded = array();
+
+	foreach ( caw_edd_private_page_ids() as $id ) {
+		$excluded[] = untrailingslashit( (string) get_permalink( $id ) );
+	}
+
+	foreach ( caw_private_page_paths() as $path ) {
+		$page = get_page_by_path( $path );
+
+		if ( $page ) {
+			$excluded[] = untrailingslashit( (string) get_permalink( $page ) );
+		}
+	}
+
+	$kept = array();
+
+	foreach ( $entries as $entry ) {
+		if ( ! in_array( untrailingslashit( (string) ( $entry['loc'] ?? '' ) ), $excluded, true ) ) {
+			$kept[] = $entry;
+		}
+	}
+
+	return $kept;
+}
+
+/**
+ * The store pages EDD owns, read from its settings rather than hard-coded.
+ *
+ * If the store is ever pointed at a different checkout or confirmation page,
+ * this follows it instead of quietly protecting the wrong page.
+ */
+function caw_edd_private_page_ids() {
+	static $ids = null;
+
+	if ( null !== $ids ) {
+		return $ids;
+	}
+
+	$ids = array();
+
+	if ( function_exists( 'edd_get_option' ) ) {
+		foreach ( array( 'purchase_page', 'success_page', 'failure_page', 'purchase_history_page', 'confirmation_page' ) as $setting ) {
+			$id = (int) edd_get_option( $setting );
+
+			if ( $id ) {
+				$ids[] = $id;
+			}
+		}
+	}
+
+	return $ids;
+}
+
+/**
+ * The rest, by path — nothing owns these as a setting.
+ *
+ * Paths, not IDs, so dev and prod stay in step without maintaining two lists.
+ */
+function caw_private_page_paths() {
+	return array(
+		'account',
+		'checkout/purchase-history/invoice',
+		/* Prod carries a second, older copy of both of these at the root — same
+		   title, same content, self-canonical, i.e. straightforward duplicate
+		   content. EDD's settings point at the /checkout/ ones, which
+		   caw_edd_private_page_ids() already covers. */
+		'purchase-history',
+		'transaction-failed',
+		'vendor-dashboard',
+		'vendor',
+		'vendor-feedback',
+		'about-us/newsletter-signup/newsletter',
+		'about-us/newsletter-signup/newsletter-history',
+		'about-us/newsletter-signup/unsubscribe-confirmation',
+		'about-us/newsletter-signup/unsubscribe-done',
+		'about-us/newsletter-signup/newsletter/subscribed-confirmation-crypto-awaz',
+	);
+}
