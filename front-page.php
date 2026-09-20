@@ -363,9 +363,9 @@ $cawh_store_url = function_exists( 'edd_get_option' ) ? get_post_type_archive_li
 (function(){
 	var ids = {bitcoin:'BTC',ethereum:'ETH',tether:'USDT',binancecoin:'BNB',solana:'SOL',ripple:'XRP'};
 	var order = ['bitcoin','ethereum','tether','binancecoin','solana','ripple'];
-	fetch('https://api.coingecko.com/api/v3/simple/price?ids='+order.join(',')+'&vs_currencies=usd&include_24hr_change=true')
-	.then(function(r){return r.json();}).then(function(d){
-		var track = document.getElementById('ch-ticker-track');
+	var track = document.getElementById('ch-ticker-track');
+
+	function paint(d){
 		if(!track) return;
 		var cells = track.querySelectorAll('.ch-tk');
 		order.forEach(function(id,i){
@@ -378,7 +378,54 @@ $cawh_store_url = function_exists( 'edd_get_option' ) ? get_post_type_archive_li
 			s.textContent = (ch>=0?'▲ ':'▼ ')+Math.abs(ch).toFixed(1)+'%';
 			cells[i].appendChild(s);
 		});
-	}).catch(function(){});
+	}
+
+	/* Six coins overflow the track at every desktop width, and the scrollbar is
+	   hidden, so XRP was unreachable with a mouse. Scroll the row instead.
+	   Idempotent: safe to re-run on resize. */
+	function marquee(){
+		if(!track) return;
+		var run = track.querySelector('.ch-ticker-run'), set;
+		if(run){
+			/* Re-measuring: drop the clone and start from the single set. */
+			track.classList.remove('is-scrolling');
+			var sets = run.querySelectorAll('.ch-ticker-set');
+			for(var i=1;i<sets.length;i++){ sets[i].parentNode.removeChild(sets[i]); }
+			set = sets[0];
+		}else{
+			run = document.createElement('div'); run.className = 'ch-ticker-run';
+			set = document.createElement('div'); set.className = 'ch-ticker-set';
+			while(track.firstElementChild){ set.appendChild(track.firstElementChild); }
+			run.appendChild(set); track.appendChild(run);
+		}
+		if(!set) return;
+		var w = set.getBoundingClientRect().width;
+		/* Fits (very wide screen, or the fetch failed and every cell is "—") —
+		   leave it static rather than animate for no reason. */
+		if(w <= track.clientWidth + 1) return;
+		var clone = set.cloneNode(true);
+		clone.setAttribute('aria-hidden','true');
+		run.appendChild(clone);
+		/* ~55px/sec, floored so a short row never whips past. */
+		track.style.setProperty('--ch-ticker-dur', Math.max(18, Math.round(w/55))+'s');
+		track.classList.add('is-scrolling');
+	}
+
+	/* The coin glyphs are FontAwesome, so measuring before the webfont lands
+	   gives the wrong width and the loop visibly jumps. */
+	function measureWhenReady(){
+		if(document.fonts && document.fonts.ready){ document.fonts.ready.then(marquee); }
+		else { marquee(); }
+	}
+
+	fetch('https://api.coingecko.com/api/v3/simple/price?ids='+order.join(',')+'&vs_currencies=usd&include_24hr_change=true')
+	.then(function(r){return r.json();})
+	.then(paint)
+	.catch(function(){})
+	.then(measureWhenReady);
+
+	var rt;
+	window.addEventListener('resize', function(){ clearTimeout(rt); rt = setTimeout(marquee, 200); });
 })();
 </script>
 

@@ -1127,6 +1127,26 @@ body.sp-night-mode-on .cawhome{
 .ch-tk{display:flex;align-items:center;gap:9px;font-size:14px;white-space:nowrap}
 .ch-tk i{font-size:17px}.ch-sym{font-weight:700;color:#fff}.ch-px{color:var(--ch-muted);font-weight:600}
 .ch-up{color:var(--ch-good);font-weight:700;font-size:13px}.ch-dn{color:#ef4444;font-weight:700;font-size:13px}
+/* Ticker marquee. The six coins always overflow the ~950px track (1200px wrap,
+   minus wrap + inner padding, minus the LIVE PRICES label), and the scrollbar is
+   hidden above — so touch could swipe to XRP but a mouse had no affordance at
+   all and XRP sat clipped off the right edge forever. Hence "desktop only".
+   JS wraps the row and adds .is-scrolling ONLY when it genuinely overflows. */
+.ch-ticker-run{display:flex}
+/* Each set carries its own trailing gap, so the run is exactly 2x(set+gap) and
+   translating -50% lands the clone precisely where the original began. Putting
+   the gap on the run instead would leave the loop half a gap short. */
+.ch-ticker-set{display:flex;gap:26px;padding-right:26px}
+.ch-ticker-track.is-scrolling{overflow:hidden}
+.ch-ticker-track.is-scrolling .ch-ticker-run{animation:ch-ticker-scroll var(--ch-ticker-dur,32s) linear infinite;will-change:transform}
+/* Pause on hover/focus, otherwise a price cannot actually be read. */
+.ch-ticker-track.is-scrolling:hover .ch-ticker-run,
+.ch-ticker-track.is-scrolling:focus-within .ch-ticker-run{animation-play-state:paused}
+@keyframes ch-ticker-scroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+@media (prefers-reduced-motion:reduce){
+	.ch-ticker-track.is-scrolling .ch-ticker-run{animation:none}
+	.ch-ticker-track.is-scrolling{overflow-x:auto}
+}
 .ch-stats{background:linear-gradient(180deg,var(--ch-card),#141a2c);border-bottom:1px solid var(--ch-line2)}
 .ch-stats-inner{display:grid;grid-template-columns:repeat(4,1fr);gap:20px;padding:34px 24px}
 .ch-stat{text-align:center}.ch-n{font-size:34px;font-weight:900;letter-spacing:-1px;color:#fff}.ch-n span{color:var(--ch-acc-l)}
