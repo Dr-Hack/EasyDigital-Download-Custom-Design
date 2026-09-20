@@ -1687,3 +1687,35 @@ function caw_private_page_paths() {
 		'about-us/newsletter-signup/newsletter/subscribed-confirmation-crypto-awaz',
 	);
 }
+
+/**
+ * Give the header logo its alt text.
+ *
+ * The parent template writes `alt="<?php esc_html( 'Logo', 'mayosis' ); ?>"`
+ * on every logo image — and `esc_html()` RETURNS its argument instead of
+ * printing it (it isn't a translation function either), so all of them render
+ * as `alt=""`. The header emits this element once per header region, with a
+ * light and a dark copy each, so the site's own name was missing from the eight
+ * most repeated images on every page.
+ *
+ * Only the empty alts this template produced are touched, and only the
+ * attribute — the parent keeps ownership of the markup, so theme updates and
+ * Smush's lazyload rewrite (src -> data-src, which runs later) are unaffected.
+ *
+ * All copies get the same text: only one is ever displayed, the rest are hidden
+ * by CSS for the other colour scheme or breakpoint, and assistive tech skips
+ * those.
+ */
+function caw_render_logo_element() {
+	ob_start();
+	require get_template_directory() . '/includes/header/header-elements/header-logo.php';
+	$html = ob_get_clean();
+
+	$alt = get_bloginfo( 'name' );
+
+	if ( $alt ) {
+		$html = str_replace( ' alt=""', ' alt="' . esc_attr( $alt ) . '"', $html );
+	}
+
+	echo $html; // phpcs:ignore WordPress.Security.EscapeOutput -- theme template output.
+}
