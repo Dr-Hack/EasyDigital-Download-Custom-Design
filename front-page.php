@@ -285,7 +285,7 @@ $cawh_store_url = function_exists( 'edd_get_option' ) ? get_post_type_archive_li
 <section class="ch-sec ch-pt0"><div class="ch-wrap">
 	<div class="ch-cta-band">
 		<div><h2>Want to sell your crypto products?</h2><p>Reach thousands of buyers across Pakistan &amp; beyond. List your services, get paid in crypto, and let us handle the marketplace.</p></div>
-		<a class="ch-btn ch-btn-primary ch-btn-lg" href="<?php echo esc_url( home_url( '/sell-your-services-in-crypto/' ) ); ?>"><i class="fas fa-store"></i> Become a Vendor</a>
+		<a class="ch-btn ch-btn-primary ch-btn-lg" href="<?php echo esc_url( home_url( '/about-us/sell-services-in-crypto/' ) ); ?>"><i class="fas fa-store"></i> Become a Vendor</a>
 	</div>
 </div></section>
 
