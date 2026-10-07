@@ -22,6 +22,9 @@ define( 'EDD_SLUG', 'products' );
 // Cloudflare Turnstile — auth modal, wp-login.php and the FES vendor forms.
 require_once get_stylesheet_directory() . '/caw-turnstile.php';
 
+// EDD Reviews hardening (nonce, buyer gate, moderation) + reviewer-email masking.
+require_once get_stylesheet_directory() . '/caw-edd-reviews-guard.php';
+
 /* =============================================================================
    SOCIAL LOGIN — Nextend buttons in the auth popup and on the account pages
    ============================================================================= */
