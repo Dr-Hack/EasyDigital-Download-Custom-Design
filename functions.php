@@ -828,7 +828,107 @@ function caw_get_price_model( $id ) {
     }
     $model['pidPrice'] = $pidPrice;
 
+    // Sale (Counten Sale Counter plugin): struck-through regular price + % off per price id.
+    $pidWas = array();
+    $pidOff = array();
+    foreach ( $prices as $pid => $p ) {
+        $sale = caw_sale_info( $id, $pid );
+        if ( $sale ) {
+            $pidWas[ (int) $pid ] = html_entity_decode( edd_currency_filter( edd_format_amount( $sale['regular'] ) ), ENT_QUOTES, 'UTF-8' );
+            $pidOff[ (int) $pid ] = $sale['off'];
+        }
+    }
+    $model['pidWas'] = $pidWas;
+    $model['pidOff'] = $pidOff;
+
     return $model;
+}
+
+/* ---- Sale price (Counten "EDD Sale Counter Advanced" plugin) -------------
+ * The plugin swaps the sale price into the live price on the frontend:
+ *   variable → edd_get_variable_prices() rows get amount = sale, regular_amount = original
+ *              (always on while the row's Sale Price is filled; the end date is ignored)
+ *   simple   → edd_get_download_price() returns edd_sale_price, but ONLY while
+ *              today < "Sale Price End Time" (blank end date = no sale)
+ * So "on sale" = the live price is below the stored regular price. Returns
+ * null when not on sale, else regular / sale amounts + whole-number % off.
+ */
+function caw_sale_info( $id, $pid = null ) {
+    if ( ! class_exists( 'Edd_Sale_Counter_Advanced_Public' ) ) {
+        return null;
+    }
+    if ( edd_has_variable_prices( $id ) ) {
+        $prices = edd_get_variable_prices( $id );
+        if ( null === $pid || false === $pid || ! isset( $prices[ $pid ]['regular_amount'] ) ) {
+            return null;
+        }
+        $regular = (float) $prices[ $pid ]['regular_amount'];
+        $sale    = (float) $prices[ $pid ]['amount'];
+    } else {
+        $regular = (float) edd_sanitize_amount( get_post_meta( $id, 'edd_price', true ) );
+        $sale    = (float) edd_get_download_price( $id );
+    }
+    if ( $regular <= 0 || $sale >= $regular ) {
+        return null;
+    }
+    return array(
+        'regular' => $regular,
+        'sale'    => $sale,
+        'off'     => (int) round( ( $regular - $sale ) / $regular * 100 ),
+    );
+}
+
+/* edd_price(): the plugin's own filter gates variable sales on the (product-level)
+ * end date, so with no end date the grids showed the REGULAR price of the cheapest
+ * row (e.g. $30 while it sells at $22). Only for products with a sale running:
+ * show the price id asked for, else the cheapest row (as the plugin does), and
+ * strike its regular price when that row is on sale. Everything else untouched. */
+add_filter( 'edd_download_price_after_html', 'caw_sale_price_html', 20, 4 );
+function caw_sale_price_html( $formatted, $download_id, $price, $price_id ) {
+    if ( ! class_exists( 'Edd_Sale_Counter_Advanced_Public' ) ) {
+        return $formatted;
+    }
+    $pid = null;
+    if ( edd_has_variable_prices( $download_id ) ) {
+        $prices = edd_get_variable_prices( $download_id );
+        if ( empty( $prices ) || ! array_filter( array_keys( $prices ), function ( $k ) use ( $download_id ) { return caw_sale_info( $download_id, $k ); } ) ) {
+            return $formatted;
+        }
+        if ( is_numeric( $price_id ) && isset( $prices[ $price_id ] ) ) {
+            $pid = $price_id;
+        } else {
+            $min = null;
+            foreach ( $prices as $k => $p ) {
+                if ( null === $min || (float) $p['amount'] < $min ) {
+                    $min = (float) $p['amount'];
+                    $pid = $k;
+                }
+            }
+        }
+        $now = $prices[ $pid ]['amount'];
+    } else {
+        $now = edd_get_download_price( $download_id );
+    }
+    $sale = caw_sale_info( $download_id, $pid );
+    if ( ! $sale && ! edd_has_variable_prices( $download_id ) ) {
+        return $formatted;
+    }
+    $was = $sale ? '<del class="caw-was">' . apply_filters( 'edd_download_price', $sale['regular'], $download_id, $pid ) . '</del> ' : '';
+    return '<span class="edd_price" id="edd_price_' . esc_attr( $download_id ) . '">' . $was . apply_filters( 'edd_download_price', $now, $download_id, $pid ) . '</span>';
+}
+
+/* Checkout / cart line: the plugin only strikes the regular price while the
+ * end date is in the future, which never holds for variable-price sales. */
+add_filter( 'edd_cart_item_price_label', 'caw_sale_cart_label', 20, 3 );
+function caw_sale_cart_label( $label, $item_id, $options ) {
+    if ( false !== strpos( $label, '<del' ) ) {
+        return $label;
+    }
+    $sale = caw_sale_info( $item_id, isset( $options['price_id'] ) ? $options['price_id'] : null );
+    if ( ! $sale ) {
+        return $label;
+    }
+    return '<del class="caw-was">' . edd_currency_filter( edd_format_amount( $sale['regular'] ) ) . '</del> ' . $label;
 }
 
 /* ---- EDD reviews markup (for the Reviews tab) --------------------------- */

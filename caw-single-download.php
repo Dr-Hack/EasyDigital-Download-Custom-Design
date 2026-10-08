@@ -128,7 +128,16 @@ while ( have_posts() ) :
                                     <div class="caw-opt<?php echo $o_active ? ' caw-active' : ''; ?><?php echo $o_out ? ' caw-soldout' : ''; ?>"
                                          data-pid="<?php echo (int) $o['pid']; ?>"<?php echo $o_out ? ' data-soldout="1"' : ''; ?>>
                                         <span class="caw-optname"><?php echo esc_html( $o['name'] ); ?></span>
-                                        <span class="caw-optprice"><?php echo $o_out ? esc_html__( 'Sold out', 'mayosis' ) : esc_html( $model['pidPrice'][ $o['pid'] ] ); ?></span>
+                                        <span class="caw-optprice"><?php
+                                            if ( $o_out ) {
+                                                esc_html_e( 'Sold out', 'mayosis' );
+                                            } else {
+                                                if ( isset( $model['pidWas'][ $o['pid'] ] ) ) {
+                                                    echo '<del class="caw-was">' . esc_html( $model['pidWas'][ $o['pid'] ] ) . '</del> ';
+                                                }
+                                                echo esc_html( $model['pidPrice'][ $o['pid'] ] );
+                                            }
+                                        ?></span>
                                     </div>
                                 <?php endforeach; ?>
                             </div>
@@ -137,12 +146,23 @@ while ( have_posts() ) :
 
                     <div class="caw-pricerow">
                         <span class="caw-price"></span>
+                        <del class="caw-was" hidden></del>
                         <span class="caw-per"></span>
+                        <span class="caw-off" hidden></span>
                     </div>
 
                 <?php else : ?>
+                    <?php $sale = caw_sale_info( $id ); ?>
                     <div class="caw-pricerow">
-                        <span class="caw-price"><?php echo edd_price( $id, false ); // phpcs:ignore ?></span>
+                        <?php if ( $sale ) : ?>
+                            <span class="caw-price"><?php echo esc_html( html_entity_decode( edd_currency_filter( edd_format_amount( $sale['sale'] ) ), ENT_QUOTES, 'UTF-8' ) ); ?></span>
+                            <del class="caw-was"><?php echo esc_html( html_entity_decode( edd_currency_filter( edd_format_amount( $sale['regular'] ) ), ENT_QUOTES, 'UTF-8' ) ); ?></del>
+                        <?php else : ?>
+                            <span class="caw-price"><?php echo edd_price( $id, false ); // phpcs:ignore ?></span>
+                        <?php endif; ?>
+                        <?php if ( $sale ) : ?>
+                            <span class="caw-off"><?php echo esc_html( sprintf( __( '%d%% OFF', 'mayosis' ), $sale['off'] ) ); ?></span>
+                        <?php endif; ?>
                     </div>
                 <?php endif; ?>
 
@@ -297,6 +317,9 @@ while ( have_posts() ) :
         'defaultPid' => isset( $model['default_pid'] ) ? (int) $model['default_pid'] : -1,
         'map'        => isset( $model['map'] ) ? $model['map'] : new stdClass(),
         'pidPrice'   => isset( $model['pidPrice'] ) ? $model['pidPrice'] : new stdClass(),
+        'pidWas'     => ! empty( $model['pidWas'] ) ? $model['pidWas'] : new stdClass(),
+        'pidOff'     => ! empty( $model['pidOff'] ) ? $model['pidOff'] : new stdClass(),
+        'offLabel'   => __( '%d% OFF', 'mayosis' ),
         'buyNow'     => __( 'Buy Now', 'mayosis' ),
         'stock'      => ( $stock && ! empty( $stock['variable'] ) && ! empty( $stock['options'] ) ) ? $stock['options'] : new stdClass(),
         'outLabel'    => __( 'Out of Stock', 'mayosis' ),
@@ -313,6 +336,8 @@ while ( have_posts() ) :
         var form = box.querySelector('.caw-edd-form form') || box.querySelector('.caw-edd-form');
         var priceEl = box.querySelector('.caw-price');
         var perEl   = box.querySelector('.caw-per');
+        var wasEl   = box.querySelector('.caw-pricerow .caw-was');
+        var offEl   = box.querySelector('.caw-pricerow .caw-off');
         var ctaPrice = box.querySelector('.caw-cta-price');
         var ctaLabel = box.querySelector('.caw-cta-label');
         var stockBadge = box.querySelector('.caw-stock');
@@ -351,6 +376,9 @@ while ( have_posts() ) :
             if (sel) sel.dispatchEvent(new Event('change', { bubbles: true }));
             var pstr = DATA.pidPrice[pid] || '';
             if (priceEl) priceEl.textContent = pstr;
+            var was = DATA.pidWas[pid] || '';
+            if (wasEl) { wasEl.textContent = was; wasEl.hidden = !was; }
+            if (offEl) { offEl.textContent = was ? DATA.offLabel.replace('%d', DATA.pidOff[pid]) : ''; offEl.hidden = !was; }
             applyStock(pid, pstr);
         }
 

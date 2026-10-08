@@ -722,6 +722,18 @@ body.sp-night-mode-on .caw-sales-badge { color: #fbbf24; background: rgba(245, 1
 .caw-pricerow { display: flex; align-items: baseline; gap: 10px; margin: 22px 0 4px; }
 .caw-price { font-size: 34px; font-weight: 700; color: var(--caw-txt); }
 .caw-per { color: var(--caw-muted); font-size: 15px; }
+/* sale (Counten Sale Counter plugin): struck regular price + % off pill */
+.caw-pricerow { flex-wrap: wrap; }
+.caw-pricerow .caw-was { font-size: 20px; font-weight: 500; color: var(--caw-muted); text-decoration: line-through; text-decoration-thickness: 2px; }
+.caw-pricerow .caw-was[hidden], .caw-pricerow .caw-off[hidden] { display: none; }
+.caw-off { align-self: center; font-size: 12px; font-weight: 700; letter-spacing: .4px; padding: 3px 9px; border-radius: 999px; color: #15803d; background: rgba(34,197,94,.12); border: 1px solid rgba(34,197,94,.35); }
+.caw-opt .caw-was, .caw-relprice .caw-was, .edd_price .caw-was { font-weight: 500; color: var(--caw-muted, #8a94a6); text-decoration: line-through; margin-right: 4px; }
+.edd_cart_item_price .caw-was { color: #8a94a6; margin-right: 4px; }
+body.sp-night-mode-on .caw-pricerow .caw-was,
+body.sp-night-mode-on .caw-opt .caw-was,
+body.sp-night-mode-on .edd_price .caw-was,
+body.sp-night-mode-on .edd_cart_item_price .caw-was { color: #8796b0 !important; }
+body.sp-night-mode-on .caw-off { color: #4ade80 !important; background: rgba(34,197,94,.14); border-color: rgba(74,222,128,.35); }
 .caw-product .caw-cta {
     display: block !important; width: 100%; text-align: center; cursor: pointer; border: 0;
     background: #1e73be;
