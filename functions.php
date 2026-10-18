@@ -1027,7 +1027,7 @@ function caw_vendor_html( $id ) {
             <div class="caw-vendor-meta">
                 <div class="caw-vendor-name">
                     <?php echo esc_html( $name ); ?>
-                    <span class="caw-vendor-verified" title="<?php esc_attr_e( 'Verified vendor', 'mayosis' ); ?>">&#10004;</span>
+                    <span class="caw-vendor-verified" role="img" aria-label="<?php esc_attr_e( 'Verified vendor', 'mayosis' ); ?>" title="<?php esc_attr_e( 'Verified vendor', 'mayosis' ); ?>">&#10004;</span>
                 </div>
                 <div class="caw-vendor-sub">
                     <?php if ( $year ) : ?><span><?php printf( esc_html__( 'Member since %s', 'mayosis' ), esc_html( $year ) ); ?></span><?php endif; ?>

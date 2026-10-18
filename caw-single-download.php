@@ -85,12 +85,12 @@ while ( have_posts() ) :
                     <?php if ( ! empty( $model['two_axis'] ) ) : ?>
                         <!-- Plan axis -->
                         <div class="caw-selblock">
-                            <div class="caw-sellabel"><?php echo esc_html( $model['plan_label'] ); ?></div>
-                            <div class="caw-plans">
+                            <div class="caw-sellabel" id="caw-lbl-plan"><?php echo esc_html( $model['plan_label'] ); ?></div>
+                            <div class="caw-plans" role="radiogroup" aria-labelledby="caw-lbl-plan">
                                 <?php foreach ( $model['plans'] as $i => $plan ) :
                                     $plan_active = isset( $model['default_plan'] ) ? ( $plan === $model['default_plan'] ) : ( 0 === $i );
                                     ?>
-                                    <div class="caw-plan<?php echo $plan_active ? ' caw-active' : ''; ?>" data-plan="<?php echo esc_attr( $plan ); ?>">
+                                    <div class="caw-plan<?php echo $plan_active ? ' caw-active' : ''; ?>" role="radio" data-plan="<?php echo esc_attr( $plan ); ?>">
                                         <div class="caw-pname"><?php echo esc_html( $plan ); ?></div>
                                     </div>
                                 <?php endforeach; ?>
@@ -100,12 +100,12 @@ while ( have_posts() ) :
                         <!-- Duration axis (only if more than one value) -->
                         <?php if ( count( $model['durs'] ) > 1 ) : ?>
                             <div class="caw-selblock">
-                                <div class="caw-sellabel"><?php echo esc_html( $model['dur_label'] ); ?></div>
-                                <div class="caw-durs">
+                                <div class="caw-sellabel" id="caw-lbl-dur"><?php echo esc_html( $model['dur_label'] ); ?></div>
+                                <div class="caw-durs" role="radiogroup" aria-labelledby="caw-lbl-dur">
                                     <?php foreach ( $model['durs'] as $i => $d ) :
                                         $dur_active = isset( $model['default_dur'] ) ? ( $d === $model['default_dur'] ) : ( 0 === $i );
                                         ?>
-                                        <div class="caw-dur<?php echo $dur_active ? ' caw-active' : ''; ?>" data-dur="<?php echo esc_attr( $d ); ?>"><?php echo esc_html( $d ); ?></div>
+                                        <div class="caw-dur<?php echo $dur_active ? ' caw-active' : ''; ?>" role="radio" data-dur="<?php echo esc_attr( $d ); ?>"><?php echo esc_html( $d ); ?></div>
                                     <?php endforeach; ?>
                                 </div>
                             </div>
@@ -118,14 +118,14 @@ while ( have_posts() ) :
                     <?php else : ?>
                         <!-- Single-axis option list (fallback) -->
                         <div class="caw-selblock">
-                            <div class="caw-sellabel"><?php esc_html_e( 'Choose an option', 'mayosis' ); ?></div>
-                            <div class="caw-opts">
+                            <div class="caw-sellabel" id="caw-lbl-opt"><?php esc_html_e( 'Choose an option', 'mayosis' ); ?></div>
+                            <div class="caw-opts" role="radiogroup" aria-labelledby="caw-lbl-opt">
                                 <?php foreach ( $model['options'] as $i => $o ) :
                                     $os    = ( $stock && ! empty( $stock['variable'] ) && isset( $stock['options'][ $o['pid'] ] ) ) ? $stock['options'][ $o['pid'] ] : null;
                                     $o_out = $os && ! empty( $os['soldOut'] );
                                     $o_active = isset( $model['default_pid'] ) ? ( (int) $o['pid'] === (int) $model['default_pid'] ) : ( 0 === $i );
                                     ?>
-                                    <div class="caw-opt<?php echo $o_active ? ' caw-active' : ''; ?><?php echo $o_out ? ' caw-soldout' : ''; ?>"
+                                    <div class="caw-opt<?php echo $o_active ? ' caw-active' : ''; ?><?php echo $o_out ? ' caw-soldout' : ''; ?>" role="radio"
                                          data-pid="<?php echo (int) $o['pid']; ?>"<?php echo $o_out ? ' data-soldout="1"' : ''; ?>>
                                         <span class="caw-optname"><?php echo esc_html( $o['name'] ); ?></span>
                                         <span class="caw-optprice"><?php
@@ -144,7 +144,8 @@ while ( have_posts() ) :
                         </div>
                     <?php endif; ?>
 
-                    <div class="caw-pricerow">
+                    <?php /* Filled by JS on every selection — announce it to screen readers. */ ?>
+                    <div class="caw-pricerow" aria-live="polite" aria-atomic="true">
                         <span class="caw-price"></span>
                         <del class="caw-was" hidden></del>
                         <span class="caw-per"></span>
@@ -189,7 +190,7 @@ while ( have_posts() ) :
                     }
                 }
                 if ( $stock_badge ) {
-                    echo '<div class="caw-stockrow">' . $stock_badge . '</div>'; // phpcs:ignore WordPress.Security.EscapeOutput
+                    echo '<div class="caw-stockrow" aria-live="polite">' . $stock_badge . '</div>'; // phpcs:ignore WordPress.Security.EscapeOutput
                 }
                 ?>
 
@@ -286,6 +287,8 @@ while ( have_posts() ) :
                         ?>
                         <div class="caw-tab<?php echo 0 === $i ? ' caw-active' : ''; ?><?php echo esc_attr( $extra ); ?>"
                              id="caw-tabbtn-<?php echo esc_attr( $key ); ?>"
+                             role="tab" aria-controls="caw-panel-<?php echo esc_attr( $key ); ?>"
+                             aria-selected="<?php echo 0 === $i ? 'true' : 'false'; ?>" tabindex="<?php echo 0 === $i ? '0' : '-1'; ?>"
                              data-target="caw-panel-<?php echo esc_attr( $key ); ?>">
                             <?php echo esc_html( $t['title'] ); ?>
                         </div>
@@ -295,7 +298,8 @@ while ( have_posts() ) :
                     $key = isset( $t['key'] ) ? $t['key'] : 'tab' . $i;
                     ?>
                     <div class="caw-panel<?php echo 0 === $i ? ' caw-active' : ''; ?>"
-                         id="caw-panel-<?php echo esc_attr( $key ); ?>">
+                         id="caw-panel-<?php echo esc_attr( $key ); ?>"
+                         role="tabpanel" aria-labelledby="caw-tabbtn-<?php echo esc_attr( $key ); ?>">
                         <?php
                         // Trusted output: the_content() (already filtered) + EDD reviews template.
                         // Do NOT run through wp_kses_post() — it strips <style>/<script> tags but
@@ -380,7 +384,46 @@ while ( have_posts() ) :
             if (wasEl) { wasEl.textContent = was; wasEl.hidden = !was; }
             if (offEl) { offEl.textContent = was ? DATA.offLabel.replace('%d', DATA.pidOff[pid]) : ''; offEl.hidden = !was; }
             applyStock(pid, pstr);
+            syncRadios();
         }
+
+        // --- Picker a11y ---
+        // The plan/duration/option chips are divs styled as cards, so mirror their
+        // state into ARIA and keep exactly one Tab stop per group (roving tabindex):
+        // the selected chip, or the first selectable one.
+        function isOff(el) { return el.classList.contains('caw-disabled') || !!el.getAttribute('data-soldout'); }
+        function syncRadios() {
+            box.querySelectorAll('[role="radiogroup"]').forEach(function (g) {
+                var items = g.querySelectorAll('[role="radio"]'), stop = null, i;
+                items.forEach(function (r) {
+                    var on = r.classList.contains('caw-active');
+                    r.setAttribute('aria-checked', on ? 'true' : 'false');
+                    if (isOff(r)) r.setAttribute('aria-disabled', 'true'); else r.removeAttribute('aria-disabled');
+                    if (on && !isOff(r)) stop = r;
+                });
+                for (i = 0; !stop && i < items.length; i++) { if (!isOff(items[i])) stop = items[i]; }
+                items.forEach(function (r) { r.tabIndex = (r === stop) ? 0 : -1; });
+            });
+        }
+        // Space/Enter picks the focused chip; arrows move to the next selectable one
+        // and pick it, like a native radio group. Clicking reuses the mouse path.
+        box.addEventListener('keydown', function (e) {
+            var r = e.target.closest ? e.target.closest('[role="radio"]') : null;
+            if (!r || !box.contains(r)) return;
+            if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); r.click(); return; }
+            var dir = (e.key === 'ArrowRight' || e.key === 'ArrowDown') ? 1
+                    : (e.key === 'ArrowLeft' || e.key === 'ArrowUp') ? -1 : 0;
+            if (!dir) return;
+            e.preventDefault();
+            var items = Array.prototype.filter.call(
+                r.closest('[role="radiogroup"]').querySelectorAll('[role="radio"]'),
+                function (x) { return !isOff(x); }
+            );
+            if (!items.length) return;
+            var next = items[(items.indexOf(r) + dir + items.length) % items.length];
+            next.click();
+            next.focus();
+        });
 
         // --- Two-axis selector ---
         var state = { plan: null, dur: null };
@@ -418,6 +461,7 @@ while ( have_posts() ) :
                 setPid(pid);
                 if (perEl) perEl.textContent = state.dur ? '/ ' + state.dur : '';
             }
+            syncRadios();
         }
 
         if (DATA.variable && DATA.twoAxis) {
@@ -512,13 +556,29 @@ while ( have_posts() ) :
         }
 
         // --- Tabs ---
-        document.querySelectorAll('.caw-tab').forEach(function (tab) {
+        // ARIA tabs pattern: only the active tab is a Tab stop; Left/Right/Home/End
+        // move between tabs and open them.
+        var tabs = Array.prototype.slice.call(document.querySelectorAll('.caw-tab'));
+        tabs.forEach(function (tab) {
             tab.addEventListener('click', function () {
-                document.querySelectorAll('.caw-tab').forEach(function (t) { t.classList.remove('caw-active'); });
+                tabs.forEach(function (t) {
+                    var on = t === tab;
+                    t.classList.toggle('caw-active', on);
+                    t.setAttribute('aria-selected', on ? 'true' : 'false');
+                    t.tabIndex = on ? 0 : -1;
+                });
                 document.querySelectorAll('.caw-panel').forEach(function (p) { p.classList.remove('caw-active'); });
-                tab.classList.add('caw-active');
                 var panel = document.getElementById(tab.getAttribute('data-target'));
                 if (panel) panel.classList.add('caw-active');
+            });
+            tab.addEventListener('keydown', function (e) {
+                var i = tabs.indexOf(tab), n = tabs.length, next = null;
+                if (e.key === 'ArrowRight')     next = tabs[(i + 1) % n];
+                else if (e.key === 'ArrowLeft') next = tabs[(i - 1 + n) % n];
+                else if (e.key === 'Home')      next = tabs[0];
+                else if (e.key === 'End')       next = tabs[n - 1];
+                else if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); tab.click(); return; }
+                if (next) { e.preventDefault(); next.click(); next.focus(); }
             });
         });
         // rating link jumps to reviews tab
@@ -527,7 +587,12 @@ while ( have_posts() ) :
             jump.addEventListener('click', function (e) {
                 e.preventDefault();
                 var rt = document.getElementById('caw-tabbtn-reviews');
-                if (rt) { rt.click(); rt.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+                if (rt) {
+                    rt.click();
+                    var still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+                    rt.scrollIntoView({ behavior: still ? 'auto' : 'smooth', block: 'center' });
+                    rt.focus({ preventScroll: true });
+                }
             });
         }
         // --- Vendor: reveal the contact form on "Message Vendor" ---
