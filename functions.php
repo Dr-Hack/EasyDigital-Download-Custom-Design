@@ -1822,3 +1822,242 @@ function caw_render_logo_element() {
 
 	echo $html; // phpcs:ignore WordPress.Security.EscapeOutput -- theme template output.
 }
+
+/* =============================================================================
+   PERF STAGE 5 — MOBILE CLS: KEEP THE HEADER'S SPACE WHEN IT GOES STICKY
+
+   Measured at 412px: every page scored 0.2186 CLS on the first scroll. Once
+   scrollTop > 1, theme.min.js adds .fixedheader to .header-master.stickyenabled,
+   that element becomes position:fixed and #main-header collapses to 0px, so
+   the whole page jumps up by the header's height.
+
+   Fix: measure #main-header while it is still in flow and pin that height as
+   its min-height. It is re-measured on load and on resize, but never while
+   fixed, because by then it reads 0.
+
+   The logo rule is here because the measurement depends on it. Smush lazy-loads
+   the logo with a 1x1 SVG placeholder, which renders taller than the 60px logo
+   until the real file arrives. If the header is measured before the swap, the
+   reserved space would be too tall. CA_logo_112.png is square and the theme
+   already sets width:60px inline, so 60x60 is its real size and nothing
+   distorts.
+   ============================================================================= */
+
+add_action( 'wp_head', 'caw_cls_logo_box', 2 );
+function caw_cls_logo_box() {
+	echo '<style id="caw-cls-logo">img.main-logo{width:60px!important;height:60px!important;aspect-ratio:1/1;object-fit:contain}</style>' . "\n";
+}
+
+add_action( 'wp_footer', 'caw_sticky_header_reserve', 1 );
+function caw_sticky_header_reserve() {
+	?>
+<script id="caw-sticky-reserve">
+(function () {
+	var h = document.getElementById('main-header');
+	var m = h && h.querySelector('.header-master.stickyenabled');
+	if (!m) { return; }
+	function lock() {
+		if (m.classList.contains('fixedheader')) { return; }
+		h.style.minHeight = '';
+		var r = h.getBoundingClientRect().height;
+		if (r > 0) { h.style.minHeight = Math.ceil(r) + 'px'; }
+	}
+	lock();
+	window.addEventListener('load', lock);
+	var t;
+	window.addEventListener('resize', function () { clearTimeout(t); t = setTimeout(lock, 150); }, { passive: true });
+})();
+</script>
+	<?php
+}
+
+/* =============================================================================
+   PERF STAGE 6 — DROP UNUSED THEME ASSETS ON STORE PAGES
+
+   Extends Stage 4 (front page only) to /products/, product category/tag
+   archives and single products, and only removes what each page cannot use.
+
+   Swiper + gallery.main.js and Plyr are dropped on a single product only when
+   that product has no gallery (vdw_gallery_id) or video/audio format.
+   caw-single-download.php still renders the parent's product-gallery-prime
+   (Swiper) and edd_media (Plyr) for those. On dev, 5 of 34 products have a
+   gallery, among them Tangem, SafePal and AirTag.
+
+   gallery.main.js is the file that calls `new Swiper` unguarded, so it always
+   goes together with swiperjs. Stage 4 dropped Swiper without it, which is
+   where the front page's "Swiper is not defined" came from.
+
+   theme.min.js calls `new BeerSlider()` unguarded in its own ready() callback,
+   which is harmless but noisy wherever Stage 4 drops beerslider. A no-op stub
+   silences it.
+
+   youtube.js only powers WPBakery parallax rows (vc_row.php) and injects
+   youtube.com/iframe_api on every page. parallax.hover.js returns 404, so it
+   goes sitewide.
+   ============================================================================= */
+
+/**
+ * Store pages this stage applies to. Checkout, account, vendor and blog pages
+ * are not touched.
+ */
+function caw_is_store_view() {
+	return is_front_page()
+		|| is_singular( 'download' )
+		|| is_post_type_archive( 'download' )
+		|| is_tax( array( 'download_category', 'download_tag' ) );
+}
+
+add_action( 'wp_enqueue_scripts', 'caw_dequeue_store_extras', 999 );
+/* Second pass before footer scripts print (wp_footer 20): MailPoet enqueues
+   from inside the_content/widget rendering, after wp_enqueue_scripts has run. */
+add_action( 'wp_footer', 'caw_dequeue_store_extras', 19 );
+function caw_dequeue_store_extras() {
+	if ( is_admin() ) {
+		return;
+	}
+
+	wp_dequeue_script( 'mayosis-object' ); // parallax.hover.js — 404 on every page.
+
+	if ( ! caw_is_store_view() ) {
+		return;
+	}
+
+	$needs_gallery = false;
+	$needs_player  = false;
+	if ( is_singular( 'download' ) ) {
+		$pid           = get_queried_object_id();
+		$needs_gallery = (bool) get_post_meta( $pid, 'vdw_gallery_id', true );
+		$needs_player  = has_post_format( array( 'video', 'audio' ), $pid );
+	}
+
+	$styles  = array( 'bbp-default', 'contact-form-7', 'aioseo/css/src/vue/standalone/blocks/table-of-contents/global.scss' );
+	$scripts = array( 'contact-form-7', 'swv', 'mayosis-yoututbe' );
+
+	if ( ! $needs_gallery ) {
+		$styles[] = 'swiperjs';
+		array_push( $scripts, 'swiperjs', 'mayosis-product-gallery' );
+	}
+	if ( ! $needs_player ) {
+		$styles[]  = 'plyr';
+		$scripts[] = 'plyr';
+	}
+
+	/* MailPoet renders no form on product/archive pages (0 .mailpoet_form in the
+	   DOM). The front page keeps it for its popup + footer forms. Its Turnstile
+	   is a second copy of api.js. */
+	if ( ! is_front_page() ) {
+		$styles[] = 'mailpoet_public';
+		array_push( $scripts, 'mailpoet_public', 'mailpoet_turnstile' );
+	}
+
+	foreach ( $styles as $handle ) {
+		wp_dequeue_style( $handle );
+	}
+	foreach ( $scripts as $handle ) {
+		wp_dequeue_script( $handle );
+	}
+}
+
+add_action( 'wp_footer', 'caw_beerslider_stub', 1 );
+function caw_beerslider_stub() {
+	if ( ! wp_script_is( 'beerslider', 'enqueued' ) ) {
+		echo "<script>window.BeerSlider=window.BeerSlider||function(){};</script>\n";
+	}
+}
+
+/* =============================================================================
+   PERF STAGE 7 — REPLACE THE 970 KB ICON FONT WITH A 1.3 KB SUBSET
+
+   iconsax.css (89 KB) pulls icomoon.ttf (969,772 bytes, font-display:block)
+   for three icons on logged-out pages: icon-user1 (Login) and icon-moon1 /
+   icon-sun-11 (night-mode switch). This inlines a WOFF2 subset of exactly
+   those glyphs. Logged-in users keep the full font, because FES, the vendor
+   dashboard and the account screens use many more.
+
+   Other isax icons the parent can print for guests, all behind settings that
+   are off here: the Filter button on download archives/search
+   (icon-filter-search1), the mobile sticky bottom bar (footer.php), and the
+   isax cart icon style. If any of those is switched on, its icon renders
+   blank. Add the glyph to the subset or drop this stage.
+   ============================================================================= */
+
+add_action( 'wp_enqueue_scripts', 'caw_swap_iconsax_subset', 100 );
+function caw_swap_iconsax_subset() {
+	if ( is_admin() || is_user_logged_in() ) {
+		return;
+	}
+	if ( ! wp_style_is( 'iconsax', 'enqueued' ) || ! wp_style_is( 'mayosis-main-style', 'enqueued' ) ) {
+		return;
+	}
+
+	wp_dequeue_style( 'iconsax' );
+
+	$css  = "@font-face{font-family:'caw-isax';src:url(data:font/woff2;base64,d09GMgABAAAAAAU4AAsAAAAACFQAAATrAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABmAARBEICos4iGwBNgIkAwoLCgAEIAWBAAcgGzsGAI7Ctp0zxnGKpHgQBuNkPPz//b597p1sSq2mtmprHBvADzZfRyAKLAVH02b5m3/ctP+BGVAPUBGh6n7nsDnceSDIhPdWpSaWwJnI/3/v9N73/7bGOt7GQOLQx/QH3lhAYxt1AhtjWh+LOgFNgwApm9dkGo9aKDgfO8gVogwuka5Jh7jS1uLXVFyjnlq0Xfrb/a6QvFqsWspkAgQH+1UkzMGOUTiyimI8WGOfSfztfnv5u9P//5emWt6a/2h0nUZDRFyAGqjAmmBzc/oijQBZN1CuTpZatPTMzTXUNbXUzaz9Y72fRkWAI2YIelkYlynsQYpQFEF90B3AGpHo1dA+kD4mBrlCJhTKqShKhWebuB9cxEGJ8IdLBI2vDIQrSshVBMBlRYSwh8rrQmjpBJHOEHCQ+7g17MPdEJTHVCgyJFy9R04jF74LnjRsinEzhSinRPlQQhrQVP00PpFEmxQEXne4Hiyx0EiZwkZF79nkaRxnI6Mc5zGCxp+xQnoXrABC00NdMA7TN0KR9O5uRveSjlgMOCJt0al5VxeV12PZc64rkUAuxnqsjMT4DH43I2szbBf3W7RHRdpIDQvg7oHpSR/pTSgzZwh3gnAWP9ARxwLwiJG6DxU+84oI4TZi/jQ6az7LWbj9oLFIhlIJSBwSRPxR+pYycubArnfFbmBDDxMyJXJLIc8c7UImPabTlRyHFWbSx0ZSKeQOWwqFVB5KpR1yUOS+TB8nkvtt+gn3KfdupRWG0QS49SIeRu3iWU7z/dvKHZlyhaFC6bqhjGX1YjS+ABj+vz5BqGvgExddnXJ7eefkhk1H8jfh/MuDJwvTpe9E1GW8Ox/5WnEyO+sF74PDljdu/8yE5JRyGPmgGweRwNaAR46DJhCzG4OCelsxEDeyg4JqxN6LhB/ZpxeBa/W7MlJqUKxKba1KDHRyc+owDRYDcbBphPpPbj+FxPr6M4zdjDtNTG8as9tIq+Xzz3bZZSZAbiuX28tHv1fxyUXKxKYaUsFQz/f1j+nswC+ObSY9bG36Zm991FwcWPWi5ZK8I+ZS6XceeVL6/tnubJ8t8xfBLZNW+2cmCHV14pl/F9D7ci+YUhU1A7jt3G/aYqKYtz3Uq26rwV37Qk9GdQkptjj9sHmCBEtFgaEU3ht+3jexSD3dSGzBdKH6pq7uzep3zJZbo7W1VK0/TYh8Ul1TpgbPYz9tDWRnuSPmMQUjbKijqcb0vRXCKmmN16Audv3VnhKnVpkDKjfUW5O+6lqkasS3lrBCbvkyLyd2/LeUepKTZ37l7LlJBlgvvDPZi7tBST7xcXGyzHQD+uX6VL1iEGwQnF+rIKI0hznwZZ1e2cgrne9qONvRbYImQziqpmM/yk739pNtAx37DgzrEaOZ1VYXFW1ZiXERmbxDhnXLMMHr82MWKYb9Ev3Rn39FWT3zDFoSAW+MnsKw8PjJ0SpbAQnOwU/vRmIdv/vvJvDvi01RCdG8+zW9pODA+EoJhdQPwSXAbPFtvsivg9biz/wimQ88UPINmQ8gcPTyoXuhmt+vV2kV4DOugyY9/s8o9itdKRkA/GY5CH5EqvJwhQjkC1JFhdisVh6UqMjjQHN/ETOvyhayqKgVmphj4powc9wrzJW66Ier6LwLpRrVa9SoQYpyldrVKdYiQ2ItWlXHv9yYM0dsZAYAAA==) format('woff2');font-weight:normal;font-style:normal;font-display:block}"
+		. ".isax{font-family:'caw-isax'!important;speak:never;font-style:normal;font-weight:normal;font-variant:normal;text-transform:none;line-height:1;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}"
+		. '.icon-sun-11:before{content:"\ecc8"}.icon-user1:before{content:"\ed06"}.icon-moon1:before{content:"\ee5f"}';
+
+	wp_add_inline_style( 'mayosis-main-style', $css );
+}
+
+/* =============================================================================
+   PERF STAGE 8 — FEWER RENDER-BLOCKING STYLESHEETS ON STORE PAGES
+
+   Measured on a product page at 412px: 19 blocking stylesheets, ~242 KB
+   gzipped, of which ~44 KB of rules are used. The cheap, safe part:
+
+   - wp-block-library (128 KB raw): dropped on home + archives (no blocks
+     rendered); non-blocking on single products, where only the description
+     tab (below the fold) uses paragraph/list/image/embed blocks.
+   - dashicons (59 KB, mostly an inline font) + edd-reviews: used only by the
+     review stars inside the Reviews tab, which is never the open tab on load.
+     Non-blocking on single products; dropped on archives (cards use Font
+     Awesome stars). Logged-in users keep them, since the admin bar needs dashicons.
+   - ajax-filter: the archive filter. Unused on single products.
+   - beerslidercss: no before/after slider anywhere (Stage 6 stubs its JS).
+
+   The theme's own main/essential/bootstrap sheets (~115 KB gz) are the rest;
+   trimming those needs critical-CSS work, not dequeues.
+   ============================================================================= */
+
+/* NOT should_load_separate_core_block_assets: tried, it prints per-block CSS
+   in the footer AFTER the theme's sheets, so block defaults beat the theme
+   (figure margins 40px → 16px) and arrive late. Deferring the whole file in
+   place keeps the cascade order identical. */
+
+/** Handles printed non-blocking (media=print → all on load) on this request. */
+function caw_deferred_style_handles() {
+	if ( is_admin() || is_user_logged_in() || ! is_singular( 'download' ) ) {
+		return array();
+	}
+	return array( 'dashicons', 'edd-reviews', 'wp-block-library' );
+}
+
+add_action( 'wp_enqueue_scripts', 'caw_trim_store_styles', 1000 );
+function caw_trim_store_styles() {
+	if ( is_admin() || ! caw_is_store_view() ) {
+		return;
+	}
+
+	wp_dequeue_style( 'beerslidercss' );
+
+	if ( is_singular( 'download' ) ) {
+		wp_dequeue_style( 'ajax-filter' );
+	} else {
+		wp_dequeue_style( 'wp-block-library' ); // home + archives render no blocks
+		if ( ! is_user_logged_in() ) {
+			wp_dequeue_style( 'edd-reviews' );
+			wp_dequeue_style( 'dashicons' ); // only queued as edd-reviews' dependency
+			// The one edd-reviews rule archive cards rely on (star row collapses into the float).
+			wp_add_inline_style( 'mayosis-main-style', '.edd_reviews_rating_box{float:left}' );
+		}
+	}
+}
+
+add_filter( 'style_loader_tag', 'caw_defer_style_tag', 10, 4 );
+function caw_defer_style_tag( $tag, $handle, $href, $media ) {
+	if ( ! in_array( $handle, caw_deferred_style_handles(), true ) || false !== strpos( $tag, 'onload=' ) ) {
+		return $tag;
+	}
+	$deferred = preg_replace( '/media=([\'"])[^\'"]*\1/', 'media=\'print\' onload="this.media=\'all\'"', $tag, 1 );
+	return $deferred . '<noscript>' . $tag . '</noscript>';
+}
