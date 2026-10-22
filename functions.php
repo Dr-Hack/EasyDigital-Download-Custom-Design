@@ -25,6 +25,9 @@ require_once get_stylesheet_directory() . '/caw-turnstile.php';
 // EDD Reviews hardening (nonce, buyer gate, moderation) + reviewer-email masking.
 require_once get_stylesheet_directory() . '/caw-edd-reviews-guard.php';
 
+// Foxreload wholesale API — automatic gift-code fulfilment for mapped products.
+require_once get_stylesheet_directory() . '/caw-foxreload.php';
+
 /* =============================================================================
    SOCIAL LOGIN — Nextend buttons in the auth popup and on the account pages
    ============================================================================= */
@@ -841,7 +844,8 @@ function caw_get_price_model( $id ) {
     $model['pidWas'] = $pidWas;
     $model['pidOff'] = $pidOff;
 
-    return $model;
+    // Lets a product rename its axes (Foxreload products: "Region" / "Amount").
+    return apply_filters( 'caw_price_model', $model, $id );
 }
 
 /* ---- Sale price (Counten "EDD Sale Counter Advanced" plugin) -------------
@@ -1185,12 +1189,13 @@ function caw_stock_info( $id ) {
                 }
             }
         }
-        return array(
+        // Supplier-backed products (Foxreload) overlay their live stock here.
+        return apply_filters( 'caw_stock_info', array(
             'variable'   => true,
             'tracked'    => $any_track,
             'options'    => $options,
             'allSoldOut' => $any_track ? $all_out : false,
-        );
+        ), $id );
     }
 
     $count = function_exists( 'edd_pl_get_download_purchase_count' )
@@ -1198,7 +1203,7 @@ function caw_stock_info( $id ) {
         : edd_pl_get_file_purchases( $id );
     $info             = $make( edd_pl_get_file_purchase_limit( $id ), $count );
     $info['variable'] = false;
-    return $info;
+    return apply_filters( 'caw_stock_info', $info, $id );
 }
 
 /* ---- Is a product fully sold out (every tier / the single price)? ---------

@@ -1,0 +1,1069 @@
+<?php
+/**
+ * Foxreload wholesale API — automatic fulfilment of gift codes sold through EDD.
+ *
+ * A product opts in by mapping its price options to Foxreload product IDs
+ * (Downloads → Edit → "Foxreload supplier" box). From then on:
+ *   - stock and wholesale cost are synced hourly; an option whose supplier is out
+ *     of stock, or whose cost has eaten the margin, shows as sold out;
+ *   - products that need a delivery detail (e.g. a PUBG Player ID) ask for it at checkout;
+ *   - when an order completes, each mapped item is bought from Foxreload, and the
+ *     codes are stored encrypted on the order item, shown on the receipt and emailed.
+ *
+ * wp-config.php:
+ *   CAW_FOXRELOAD_API_KEY         required.
+ *   CAW_FOXRELOAD_MOCK            defaults to TRUE — test orders, fake codes, no balance spent.
+ *                                 Production must define it as false to buy real codes.
+ *   CAW_FOXRELOAD_WEBHOOK_SECRET  optional; enables the order.completed webhook (Tools → Foxreload).
+ *   CAW_FOXRELOAD_MIN_MARGIN      optional, default 0.05 — never buy when cost > price × (1 − margin).
+ *
+ * Foxreload docs: https://public-api.foxreload.com/openapi.json (the /docs page omits webhooks).
+ */
+
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
+/* =========================================================================
+   A. Config + API client
+   ========================================================================= */
+
+function caw_fox_enabled() {
+	// Codes are stored with libsodium (bundled with PHP 7.2+); without it, stay off rather than store them in clear.
+	return defined( 'CAW_FOXRELOAD_API_KEY' ) && '' !== (string) CAW_FOXRELOAD_API_KEY && function_exists( 'sodium_crypto_secretbox' );
+}
+
+function caw_fox_is_mock() {
+	return ! defined( 'CAW_FOXRELOAD_MOCK' ) || CAW_FOXRELOAD_MOCK;
+}
+
+function caw_fox_min_margin() {
+	return defined( 'CAW_FOXRELOAD_MIN_MARGIN' ) ? (float) CAW_FOXRELOAD_MIN_MARGIN : 0.05;
+}
+
+/**
+ * One API call. Returns [ 'code' => HTTP status (0 = network), 'data' => decoded JSON, 'error' => Foxreload error code or '' ].
+ */
+function caw_fox_api( $method, $path, $body = null ) {
+	if ( ! caw_fox_enabled() ) {
+		return array( 'code' => 0, 'data' => null, 'error' => 'NOT_CONFIGURED' );
+	}
+	$args = array(
+		'method'  => $method,
+		'timeout' => 25,
+		'headers' => array(
+			'X-API-Key'    => CAW_FOXRELOAD_API_KEY,
+			'X-Language'   => 'en',
+			'X-Currency'   => 'usd',
+			'Accept'       => 'application/json',
+			'Content-Type' => 'application/json',
+		),
+	);
+	if ( null !== $body ) {
+		$args['body'] = wp_json_encode( $body );
+	}
+	$r = wp_remote_request( 'https://public-api.foxreload.com' . $path, $args );
+	if ( is_wp_error( $r ) ) {
+		return array( 'code' => 0, 'data' => null, 'error' => 'NETWORK: ' . $r->get_error_message() );
+	}
+	$code  = (int) wp_remote_retrieve_response_code( $r );
+	$data  = json_decode( wp_remote_retrieve_body( $r ), true );
+	$error = '';
+	if ( $code >= 400 ) {
+		$error = ( is_array( $data ) && ! empty( $data['code'] ) && is_string( $data['code'] ) ) ? $data['code'] : 'HTTP_' . $code;
+	}
+	return array( 'code' => $code, 'data' => $data, 'error' => $error );
+}
+
+/** Transient failures worth retrying later rather than failing the item. */
+function caw_fox_is_transient( $res ) {
+	return 0 === $res['code'] || 429 === $res['code'] || $res['code'] >= 500 || 'ORDER_CREATION_TIMEOUT' === $res['error'] || 'ORDER_LOCKED' === $res['error'];
+}
+
+function caw_fox_error_text( $res ) {
+	if ( is_array( $res['data'] ) && isset( $res['data']['detail'] ) ) {
+		$d = $res['data']['detail'];
+		return $res['error'] . ' — ' . ( is_string( $d ) ? $d : wp_json_encode( $d ) );
+	}
+	return $res['error'];
+}
+
+/* =========================================================================
+   B. Product mapping, sync and the margin guard
+   ========================================================================= */
+
+/**
+ * `_caw_fox` post meta: [ 'items' => [ price_id => 'product_…' ], 'axes' => [ 'Region', 'Amount' ] ].
+ * Non-variable products use price_id 0.
+ */
+function caw_fox_map( $download_id ) {
+	$m = get_post_meta( $download_id, '_caw_fox', true );
+	return ( is_array( $m ) && ! empty( $m['items'] ) ) ? $m : array();
+}
+
+function caw_fox_item_id( $download_id, $price_id ) {
+	$m = caw_fox_map( $download_id );
+	$k = (int) $price_id;
+	return isset( $m['items'][ $k ] ) ? $m['items'][ $k ] : '';
+}
+
+/** Last synced supplier data for one option, or null if never synced. */
+function caw_fox_cache( $download_id, $price_id ) {
+	$c = get_post_meta( $download_id, '_caw_fox_cache', true );
+	$k = (int) $price_id;
+	return ( is_array( $c ) && isset( $c[ $k ] ) ) ? $c[ $k ] : null;
+}
+
+/** What the customer pays for one option today (sale prices included). */
+function caw_fox_sell_price( $download_id, $price_id ) {
+	if ( edd_has_variable_prices( $download_id ) ) {
+		$prices = edd_get_variable_prices( $download_id );
+		return isset( $prices[ $price_id ]['amount'] ) ? (float) $prices[ $price_id ]['amount'] : 0.0;
+	}
+	return (float) edd_get_download_price( $download_id );
+}
+
+/** Buyable right now: in stock at the supplier and still profitable at the last sync. */
+function caw_fox_available( $download_id, $price_id ) {
+	$c = caw_fox_cache( $download_id, $price_id );
+	return $c && ! empty( $c['ok'] );
+}
+
+/**
+ * Refresh stock + cost for every mapped option of one product.
+ * Returns human-readable lines for options that changed availability.
+ */
+function caw_fox_sync_download( $download_id ) {
+	$map = caw_fox_map( $download_id );
+	if ( ! $map ) {
+		delete_post_meta( $download_id, '_caw_fox_cache' );
+		return array();
+	}
+	$old     = get_post_meta( $download_id, '_caw_fox_cache', true );
+	$old     = is_array( $old ) ? $old : array();
+	$cache   = array();
+	$changes = array();
+	foreach ( $map['items'] as $pid => $fox_id ) {
+		$res = caw_fox_api( 'GET', '/api/products/' . rawurlencode( $fox_id ) );
+		if ( $res['error'] ) {
+			if ( caw_fox_is_transient( $res ) && isset( $old[ $pid ] ) ) {
+				$cache[ $pid ] = $old[ $pid ]; // keep the last good data through an outage
+				continue;
+			}
+			$cache[ $pid ] = array( 'ok' => false, 'reason' => caw_fox_error_text( $res ), 'at' => time() );
+		} else {
+			$p    = $res['data'];
+			$cost = isset( $p['price'] ) && null !== $p['price'] ? (float) $p['price'] : 0.0;
+			$qty  = isset( $p['quantity'] ) ? (int) $p['quantity'] : 0;
+			$sell = caw_fox_sell_price( $download_id, $pid );
+			$reason = '';
+			if ( $qty < 1 || $cost <= 0 ) {
+				$reason = 'out of stock at supplier';
+			} elseif ( $cost > $sell * ( 1 - caw_fox_min_margin() ) ) {
+				$reason = sprintf( 'unprofitable: cost $%s vs price $%s', number_format( $cost, 2 ), number_format( $sell, 2 ) );
+			}
+			$cache[ $pid ] = array(
+				'ok'     => '' === $reason,
+				'reason' => $reason,
+				'cost'   => $cost,
+				'qty'    => $qty,
+				'max'    => isset( $p['orderMaxQuantity'] ) ? (int) $p['orderMaxQuantity'] : 0,
+				'req'    => isset( $p['requiredNoteFields'] ) ? array_values( (array) $p['requiredNoteFields'] ) : array(),
+				'opts'   => isset( $p['noteFieldOptions'] ) ? (array) $p['noteFieldOptions'] : array(),
+				'name'   => isset( $p['name'] ) ? (string) $p['name'] : '',
+				'guide'  => isset( $p['userGuide'] ) ? (string) $p['userGuide'] : '',
+				'at'     => time(),
+			);
+		}
+		$was = isset( $old[ $pid ] ) ? ! empty( $old[ $pid ]['ok'] ) : null;
+		if ( $was !== $cache[ $pid ]['ok'] ) {
+			$changes[] = sprintf(
+				'%s — %s: %s',
+				get_the_title( $download_id ),
+				edd_get_price_option_name( $download_id, $pid ) ?: 'price',
+				$cache[ $pid ]['ok'] ? 'available again' : 'DISABLED (' . $cache[ $pid ]['reason'] . ')'
+			);
+		}
+	}
+	update_post_meta( $download_id, '_caw_fox_cache', $cache );
+	return $changes;
+}
+
+function caw_fox_mapped_downloads() {
+	return get_posts( array(
+		'post_type'      => 'download',
+		'post_status'    => array( 'publish', 'draft', 'private', 'pending' ),
+		'posts_per_page' => 200,
+		'fields'         => 'ids',
+		'meta_key'       => '_caw_fox', // phpcs:ignore WordPress.DB.SlowDBQuery
+	) );
+}
+
+function caw_fox_sync_all() {
+	$changes = array();
+	foreach ( caw_fox_mapped_downloads() as $id ) {
+		$changes = array_merge( $changes, caw_fox_sync_download( $id ) );
+	}
+	update_option( 'caw_fox_last_sync', time(), false );
+	if ( $changes ) {
+		caw_fox_admin_alert( 'Foxreload availability changed', implode( "\n", $changes ) );
+	}
+}
+add_action( 'caw_fox_sync_all', 'caw_fox_sync_all' );
+
+add_filter( 'cron_schedules', function ( $s ) {
+	$s['caw_five_minutes'] = array( 'interval' => 300, 'display' => 'Every 5 minutes' );
+	return $s;
+} );
+
+add_action( 'init', function () {
+	if ( ! caw_fox_enabled() ) {
+		return;
+	}
+	if ( ! wp_next_scheduled( 'caw_fox_sync_all' ) ) {
+		wp_schedule_event( time() + 60, 'hourly', 'caw_fox_sync_all' );
+	}
+	if ( ! wp_next_scheduled( 'caw_fox_reconcile' ) ) {
+		wp_schedule_event( time() + 120, 'caw_five_minutes', 'caw_fox_reconcile' );
+	}
+} );
+
+function caw_fox_admin_alert( $subject, $body ) {
+	$to = function_exists( 'edd_get_admin_notice_emails' ) ? edd_get_admin_notice_emails() : get_option( 'admin_email' );
+	wp_mail( $to, '[Crypto Awaz] ' . $subject, $body . "\n\n" . admin_url( 'tools.php?page=caw-foxreload' ) );
+}
+
+/* =========================================================================
+   C. Storefront: axis labels, live stock, checkout fields
+   ========================================================================= */
+
+// "Global – 60 UC" options already split into two axes; name them.
+add_filter( 'caw_price_model', function ( $model, $id ) {
+	$map = caw_fox_map( $id );
+	if ( $map && ! empty( $model['two_axis'] ) && ! empty( $map['axes'][0] ) ) {
+		$model['plan_label'] = $map['axes'][0];
+		$model['dur_label']  = ! empty( $map['axes'][1] ) ? $map['axes'][1] : $model['dur_label'];
+	}
+	return $model;
+}, 10, 2 );
+
+// Overlay supplier stock on the Purchase Limit stock the product page already understands.
+add_filter( 'caw_stock_info', function ( $info, $id ) {
+	$map = caw_fox_map( $id );
+	if ( ! $map || ! is_array( $info ) ) {
+		return $info;
+	}
+	$make = function ( $pid ) use ( $id ) {
+		$c = caw_fox_cache( $id, $pid );
+		if ( ! $c || empty( $c['ok'] ) ) {
+			return array( 'tracked' => true, 'limit' => -1, 'sold' => 0, 'remaining' => 0, 'soldOut' => true );
+		}
+		return array( 'tracked' => true, 'limit' => $c['qty'], 'sold' => 0, 'remaining' => $c['qty'], 'soldOut' => false );
+	};
+	if ( empty( $info['variable'] ) ) {
+		return ! empty( $info['soldOut'] ) ? $info : array_merge( $make( 0 ), array( 'variable' => false ) );
+	}
+	$all_out = true;
+	foreach ( $info['options'] as $pid => $o ) {
+		if ( isset( $map['items'][ $pid ] ) && empty( $o['soldOut'] ) ) {
+			$info['options'][ $pid ] = $make( $pid );
+		}
+		if ( empty( $info['options'][ $pid ]['soldOut'] ) ) {
+			$all_out = false;
+		}
+	}
+	$info['tracked']    = true;
+	$info['allSoldOut'] = $all_out;
+	return $info;
+}, 10, 2 );
+
+/** Cart lines (by cart key) that are Foxreload products. */
+function caw_fox_cart_lines() {
+	$lines = array();
+	foreach ( (array) edd_get_cart_contents() as $key => $item ) {
+		$pid    = isset( $item['options']['price_id'] ) ? (int) $item['options']['price_id'] : 0;
+		$fox_id = caw_fox_item_id( $item['id'], $pid );
+		if ( $fox_id ) {
+			$lines[ $key ] = array( 'item' => $item, 'price_id' => $pid, 'cache' => caw_fox_cache( $item['id'], $pid ) );
+		}
+	}
+	return $lines;
+}
+
+/**
+ * True once per request for a given box, and only while the visible page body is being built.
+ * The checkout hook fires 4× per render (CFM fires it once per form pass, the block once more),
+ * and AIOSEO renders page content inside <head> to build descriptions — that pass must not
+ * use up the one slot. AJAX (gateway switch) re-renders have no <head>, so they always count.
+ */
+function caw_fox_render_once( $box ) {
+	static $done = array();
+	if ( ! wp_doing_ajax() && ( ! did_action( 'wp_head' ) || doing_action( 'wp_head' ) ) ) {
+		return false;
+	}
+	if ( isset( $done[ $box ] ) ) {
+		return false;
+	}
+	$done[ $box ] = true;
+	return true;
+}
+
+function caw_fox_field_label( $field ) {
+	$labels = array(
+		'character_id' => __( 'Player ID', 'mayosis' ),
+		'account_id'   => __( 'Player ID', 'mayosis' ),
+		'user_id'      => __( 'User ID', 'mayosis' ),
+		'username'     => __( 'Username', 'mayosis' ),
+		'server'       => __( 'Server', 'mayosis' ),
+		'server_id'    => __( 'Server ID', 'mayosis' ),
+	);
+	return isset( $labels[ $field ] ) ? $labels[ $field ] : ucwords( str_replace( '_', ' ', $field ) );
+}
+
+/** Numeric game IDs are the common typo source — insist on digits for them. */
+function caw_fox_field_is_numeric( $field ) {
+	return in_array( $field, array( 'character_id', 'account_id', 'user_id', 'server_id' ), true );
+}
+
+add_action( 'edd_purchase_form_user_info_fields', function () {
+	$rows = '';
+	foreach ( caw_fox_cart_lines() as $key => $line ) {
+		$req = ! empty( $line['cache']['req'] ) ? $line['cache']['req'] : array();
+		foreach ( $req as $field ) {
+			$name  = 'caw_fox_note[' . (int) $key . '][' . sanitize_key( $field ) . ']';
+			$id    = 'caw-fox-' . (int) $key . '-' . sanitize_key( $field );
+			$value = isset( $_POST['caw_fox_note'][ $key ][ $field ] ) ? sanitize_text_field( wp_unslash( $_POST['caw_fox_note'][ $key ][ $field ] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification
+			$title = edd_get_cart_item_name( $line['item'] );
+			$rows .= '<p class="caw-fox-field">';
+			$rows .= '<label class="edd-label" for="' . esc_attr( $id ) . '">' . esc_html( caw_fox_field_label( $field ) . ' — ' . $title ) . ' <span class="edd-required-indicator">*</span></label>';
+			$opts = ! empty( $line['cache']['opts'][ $field ] ) ? (array) $line['cache']['opts'][ $field ] : array();
+			if ( $opts ) {
+				$rows .= '<select class="edd-select required" id="' . esc_attr( $id ) . '" name="' . esc_attr( $name ) . '" required>';
+				foreach ( $opts as $o ) {
+					$ov    = is_array( $o ) ? ( isset( $o['value'] ) ? $o['value'] : reset( $o ) ) : $o;
+					$ol    = is_array( $o ) && isset( $o['label'] ) ? $o['label'] : $ov;
+					$rows .= '<option value="' . esc_attr( $ov ) . '"' . selected( $value, $ov, false ) . '>' . esc_html( $ol ) . '</option>';
+				}
+				$rows .= '</select>';
+			} else {
+				$numeric = caw_fox_field_is_numeric( $field );
+				$rows   .= '<input class="edd-input required" type="text" id="' . esc_attr( $id ) . '" name="' . esc_attr( $name ) . '" value="' . esc_attr( $value ) . '" required autocomplete="off" spellcheck="false" maxlength="64"'
+					. ( $numeric ? ' inputmode="numeric" pattern="[0-9]{5,20}"' : '' ) . '>';
+			}
+			$rows .= '</p>';
+		}
+	}
+	if ( '' === $rows || ! caw_fox_render_once( 'checkout-fields' ) ) {
+		return;
+	}
+	echo '<div class="caw-fox-fields">';
+	echo '<p class="caw-fox-fields-intro">' . esc_html__( 'Your order is delivered to this ID, so please double-check it. In PUBG Mobile, tap your avatar (top-left) to copy your numeric Player ID.', 'mayosis' ) . '</p>';
+	echo $rows; // phpcs:ignore WordPress.Security.EscapeOutput -- escaped above
+	echo '</div>';
+} );
+
+add_action( 'edd_checkout_error_checks', function ( $valid_data, $post ) {
+	$notes = isset( $post['caw_fox_note'] ) && is_array( $post['caw_fox_note'] ) ? $post['caw_fox_note'] : array();
+	foreach ( caw_fox_cart_lines() as $key => $line ) {
+		$title = edd_get_cart_item_name( $line['item'] );
+		if ( ! caw_fox_available( $line['item']['id'], $line['price_id'] ) ) {
+			edd_set_error( 'caw_fox_unavailable_' . $key, sprintf( __( '%s is out of stock right now. Please remove it from your cart.', 'mayosis' ), $title ) );
+			continue;
+		}
+		$qty = edd_get_cart_item_quantity( $line['item']['id'], $line['item']['options'] );
+		if ( ! empty( $line['cache']['max'] ) && $qty > $line['cache']['max'] ) {
+			edd_set_error( 'caw_fox_qty_' . $key, sprintf( __( 'You can buy at most %1$d of %2$s per order.', 'mayosis' ), $line['cache']['max'], $title ) );
+		}
+		foreach ( (array) $line['cache']['req'] as $field ) {
+			$v = isset( $notes[ $key ][ $field ] ) ? trim( sanitize_text_field( wp_unslash( $notes[ $key ][ $field ] ) ) ) : '';
+			if ( '' === $v ) {
+				edd_set_error( 'caw_fox_note_' . $key . '_' . $field, sprintf( __( 'Please enter your %1$s for %2$s.', 'mayosis' ), caw_fox_field_label( $field ), $title ) );
+			} elseif ( caw_fox_field_is_numeric( $field ) && ! preg_match( '/^\d{5,20}$/', $v ) ) {
+				edd_set_error( 'caw_fox_note_' . $key . '_' . $field, sprintf( __( 'The %1$s for %2$s should be numbers only.', 'mayosis' ), caw_fox_field_label( $field ), $title ) );
+			}
+		}
+	}
+}, 10, 2 );
+
+// Copy the checkout details onto the order items they belong to (cart key == cart_index).
+add_action( 'edd_built_order', function ( $order_id, $order_data ) {
+	$post  = ! empty( $order_data['post_data'] ) && is_array( $order_data['post_data'] ) ? $order_data['post_data'] : $_POST; // phpcs:ignore WordPress.Security.NonceVerification
+	$notes = isset( $post['caw_fox_note'] ) && is_array( $post['caw_fox_note'] ) ? $post['caw_fox_note'] : array();
+	if ( ! $notes ) {
+		return;
+	}
+	foreach ( edd_get_order_items( array( 'order_id' => $order_id, 'number' => 100 ) ) as $item ) {
+		if ( empty( $notes[ $item->cart_index ] ) || ! is_array( $notes[ $item->cart_index ] ) ) {
+			continue;
+		}
+		$clean = array();
+		foreach ( $notes[ $item->cart_index ] as $field => $v ) {
+			$clean[ sanitize_key( $field ) ] = trim( sanitize_text_field( wp_unslash( $v ) ) );
+		}
+		edd_update_order_item_meta( $item->id, '_caw_fox_note', $clean );
+	}
+}, 10, 2 );
+
+/* =========================================================================
+   D. Fulfilment
+   Item meta: _caw_fox_status (created|pending|balance|delivered|failed|manual),
+   _caw_fox_order (Foxreload order id), _caw_fox_remote (its status), _caw_fox_codes
+   (encrypted), _caw_fox_service, _caw_fox_error, _caw_fox_try, _caw_fox_emailed.
+   ========================================================================= */
+
+/**
+ * Order items that are Foxreload products. EDD flips item statuses to "complete" only after
+ * edd_complete_purchase has run, so the completion hook asks with $only_complete = false.
+ */
+function caw_fox_order_items( $order_id, $only_complete = true ) {
+	$out = array();
+	foreach ( edd_get_order_items( array( 'order_id' => $order_id, 'number' => 100 ) ) as $item ) {
+		if ( ( ! $only_complete || 'complete' === $item->status ) && caw_fox_item_id( $item->product_id, $item->price_id ) ) {
+			$out[] = $item;
+		}
+	}
+	return $out;
+}
+
+function caw_fox_meta( $item_id, $key ) {
+	return edd_get_order_item_meta( $item_id, $key, true );
+}
+
+function caw_fox_set( $item_id, $key, $value ) {
+	edd_update_order_item_meta( $item_id, $key, $value );
+}
+
+/**
+ * Our order reference at Foxreload. Re-sending it returns the existing order, so a retry can
+ * never double-buy. Host + mock flag keep dev test orders from colliding with live order ids.
+ */
+function caw_fox_key_prefix() {
+	$host = preg_replace( '/[^a-z0-9.]+/', '', strtolower( (string) wp_parse_url( home_url(), PHP_URL_HOST ) ) );
+	return 'caw-' . $host . '-' . ( caw_fox_is_mock() ? 'm' : '' );
+}
+
+function caw_fox_idem_key( $order_id, $item_id ) {
+	$try = (int) caw_fox_meta( $item_id, '_caw_fox_try' );
+	return caw_fox_key_prefix() . (int) $order_id . '-' . (int) $item_id . ( $try ? '-r' . $try : '' );
+}
+
+function caw_fox_note_order( $order_id, $text ) {
+	if ( function_exists( 'edd_add_note' ) ) {
+		edd_add_note( array( 'object_id' => $order_id, 'object_type' => 'order', 'content' => 'Foxreload: ' . $text ) );
+	}
+}
+
+add_action( 'edd_complete_purchase', function ( $order_id ) {
+	if ( caw_fox_enabled() && caw_fox_order_items( $order_id, false ) ) {
+		wp_schedule_single_event( time(), 'caw_fox_fulfil', array( (int) $order_id ) );
+	}
+}, 20 );
+
+add_action( 'caw_fox_fulfil', 'caw_fox_fulfil' );
+function caw_fox_fulfil( $order_id ) {
+	$order_id = (int) $order_id;
+	$lock     = 'caw_fox_lock_' . $order_id;
+	if ( get_transient( $lock ) ) {
+		return;
+	}
+	set_transient( $lock, 1, 120 );
+
+	$order = edd_get_order( $order_id );
+	if ( ! $order || 'complete' !== $order->status ) {
+		delete_transient( $lock );
+		return;
+	}
+	$waiting = false;
+	foreach ( caw_fox_order_items( $order_id ) as $item ) {
+		if ( in_array( caw_fox_meta( $item->id, '_caw_fox_status' ), array( 'delivered', 'failed', 'manual' ), true ) ) {
+			continue;
+		}
+		if ( 'waiting' === caw_fox_process_item( $order, $item ) ) {
+			$waiting = true;
+		}
+	}
+	caw_fox_send_codes_email( $order );
+
+	if ( $waiting ) {
+		$tries = (int) edd_get_order_meta( $order_id, '_caw_fox_polls', true ) + 1;
+		edd_update_order_meta( $order_id, '_caw_fox_polls', $tries );
+		if ( $tries <= 30 ) {
+			wp_schedule_single_event( time() + 60, 'caw_fox_fulfil', array( $order_id ) );
+		} elseif ( 31 === $tries ) {
+			caw_fox_admin_alert( 'Order #' . $order_id . ' still not delivered', 'Foxreload has not completed this order after 30 minutes. Check it in the order screen.' . "\n" . admin_url( 'edit.php?post_type=download&page=edd-payment-history&view=view-order-details&id=' . $order_id ) );
+		}
+	}
+	delete_transient( $lock );
+}
+
+/**
+ * Advance one order item as far as it will go. Returns 'done' or 'waiting' (check again later).
+ */
+function caw_fox_process_item( $order, $item ) {
+	$fox_id   = caw_fox_item_id( $item->product_id, $item->price_id );
+	$fox_oid  = caw_fox_meta( $item->id, '_caw_fox_order' );
+	$qty      = max( 1, (int) $item->quantity );
+
+	if ( ! $fox_oid ) {
+		// Price check against the live wholesale price, never more than the margin allows.
+		$prod = caw_fox_api( 'GET', '/api/products/' . rawurlencode( $fox_id ) );
+		if ( $prod['error'] ) {
+			return caw_fox_is_transient( $prod ) ? 'waiting' : caw_fox_fail( $order, $item, 'product lookup failed: ' . caw_fox_error_text( $prod ) );
+		}
+		$unit = isset( $prod['data']['price'] ) ? (float) $prod['data']['price'] : 0.0;
+		$cost = round( $unit * $qty, 4 );
+		$cap  = (float) $item->total * ( 1 - caw_fox_min_margin() );
+		if ( $unit <= 0 || (int) $prod['data']['quantity'] < $qty ) {
+			return caw_fox_fail( $order, $item, 'out of stock at Foxreload' );
+		}
+		if ( $cost > $cap ) {
+			return caw_fox_fail( $order, $item, sprintf( 'supplier cost $%s is above the allowed $%s (customer paid $%s)', number_format( $cost, 2 ), number_format( $cap, 2 ), number_format( (float) $item->total, 2 ) ) );
+		}
+		$note = caw_fox_meta( $item->id, '_caw_fox_note' );
+		$note = is_array( $note ) ? $note : array();
+		$key  = caw_fox_idem_key( $order->id, $item->id );
+		$send = function ( $note ) use ( $fox_id, $qty, $cost, $key ) {
+			return caw_fox_api( 'POST', '/api/orders/', array(
+				'items'          => array( array(
+					'itemId'     => $fox_id,
+					'quantity'   => $qty,
+					'totalPrice' => number_format( $cost, 4, '.', '' ), // rejected if the price moved since the lookup
+					'note'       => (object) $note,
+				) ),
+				'idempotencyKey' => $key,
+				'isMock'         => caw_fox_is_mock(),
+			) );
+		};
+		$res = $send( $note );
+		// Foxreload lists fields as required that the chosen offer then refuses (seen with PUBG
+		// UC keys' character_id). The customer redeems the code themselves, so drop those and retry.
+		if ( 'ORDER_ITEM_NOTE_FIELD_UNKNOWN' === $res['error'] && $note ) {
+			$detail = isset( $res['data']['detail'] ) && is_string( $res['data']['detail'] ) ? $res['data']['detail'] : '';
+			$drop   = preg_match( '/unknown note fields:\s*(.+)$/i', $detail, $m ) ? array_map( 'trim', explode( ',', $m[1] ) ) : array_keys( $note );
+			$res    = $send( array_diff_key( $note, array_flip( $drop ) ) );
+		}
+		if ( 'ORDER_ALREADY_EXISTS' === $res['error'] ) {
+			$res = caw_fox_api( 'GET', '/api/orders/?idempotencyKey=' . rawurlencode( $key ) . '&limit=1' );
+			$res['data'] = isset( $res['data']['items'][0] ) ? $res['data']['items'][0] : null;
+		}
+		if ( $res['error'] || empty( $res['data']['id'] ) ) {
+			if ( caw_fox_is_transient( $res ) || 'OFFER_PRICE_NOT_MATCHED' === $res['error'] ) {
+				return 'waiting'; // price ticked between lookup and order; the next pass re-prices
+			}
+			return caw_fox_fail( $order, $item, 'order rejected: ' . ( $res['error'] ? caw_fox_error_text( $res ) : 'no order id' ) );
+		}
+		$fox_oid = $res['data']['id'];
+		caw_fox_set( $item->id, '_caw_fox_order', $fox_oid );
+		caw_fox_set( $item->id, '_caw_fox_status', 'created' );
+		caw_fox_note_order( $order->id, sprintf( 'order %s created for %s ($%s%s).', $fox_oid, $item->product_name, number_format( $cost, 2 ), caw_fox_is_mock() ? ', MOCK' : '' ) );
+	}
+
+	$fo = caw_fox_api( 'GET', '/api/orders/' . rawurlencode( $fox_oid ) );
+	if ( $fo['error'] ) {
+		return 'waiting';
+	}
+	$status = isset( $fo['data']['status'] ) ? $fo['data']['status'] : '';
+
+	if ( 'active' === $status ) {
+		$pay = caw_fox_api( 'POST', '/api/orders/' . rawurlencode( $fox_oid ) . '/pay', new stdClass() );
+		if ( 'BALANCE_NOT_ENOUGH' === $pay['error'] ) {
+			if ( 'balance' !== caw_fox_meta( $item->id, '_caw_fox_status' ) ) {
+				caw_fox_set( $item->id, '_caw_fox_status', 'balance' );
+				caw_fox_note_order( $order->id, 'waiting — Foxreload balance too low.' );
+				caw_fox_admin_alert( 'Top up Foxreload — order #' . $order->id . ' is waiting', 'Your Foxreload balance cannot pay for ' . $item->product_name . '. It will be bought automatically once the balance is topped up (retries for ~30 minutes, then use Retry on the order screen).' );
+			}
+			return 'waiting';
+		}
+		if ( $pay['error'] && 'ORDER_PAYMENT_ALREADY_CREATED' !== $pay['error'] && 'ORDER_PAYMENT_NOT_POSSIBLE' !== $pay['error'] ) {
+			return caw_fox_is_transient( $pay ) ? 'waiting' : caw_fox_fail( $order, $item, 'payment failed: ' . caw_fox_error_text( $pay ) );
+		}
+		caw_fox_set( $item->id, '_caw_fox_status', 'pending' );
+		$fo = caw_fox_api( 'GET', '/api/orders/' . rawurlencode( $fox_oid ) ); // codes are often there already
+		if ( $fo['error'] ) {
+			return 'waiting';
+		}
+		$status = isset( $fo['data']['status'] ) ? $fo['data']['status'] : '';
+	}
+
+	return caw_fox_apply_remote( $order, $item, $fo['data'] );
+}
+
+/** Act on a Foxreload order as GET /orders/{id} (or the webhook) returns it. */
+function caw_fox_apply_remote( $order, $item, $fo ) {
+	$status = isset( $fo['status'] ) ? $fo['status'] : '';
+	caw_fox_set( $item->id, '_caw_fox_remote', $status );
+	$fi = isset( $fo['items'][0] ) ? $fo['items'][0] : array();
+
+	if ( 'completed' === $status ) {
+		if ( ! empty( $fi['error'] ) ) {
+			return caw_fox_fail( $order, $item, 'supplier error: ' . $fi['error'] );
+		}
+		$codes = isset( $fi['externalData'] ) ? array_values( array_filter( array_map( 'strval', (array) $fi['externalData'] ), 'strlen' ) ) : array();
+		$is_service = ! empty( $fi['product']['isService'] );
+		if ( ! $codes && ! $is_service ) {
+			return caw_fox_fail( $order, $item, 'completed without any codes' );
+		}
+		caw_fox_set( $item->id, '_caw_fox_codes', caw_fox_encrypt( wp_json_encode( $is_service ? array() : $codes ) ) );
+		caw_fox_set( $item->id, '_caw_fox_service', $is_service ? 1 : 0 );
+		if ( ! empty( $fi['externalId'] ) ) {
+			caw_fox_set( $item->id, '_caw_fox_external_id', sanitize_text_field( $fi['externalId'] ) ); // eSIM ICCID
+		}
+		caw_fox_set( $item->id, '_caw_fox_status', 'delivered' );
+		caw_fox_note_order( $order->id, sprintf( 'delivered %d code(s) for %s.', count( $codes ), $item->product_name ) );
+		return 'done';
+	}
+	if ( in_array( $status, array( 'failed', 'refunded', 'cancelled' ), true ) ) {
+		$why = ! empty( $fi['error'] ) ? $fi['error'] : 'Foxreload order ' . $status;
+		return caw_fox_fail( $order, $item, $why . ( 'refunded' === $status ? ' (refunded to Foxreload balance)' : '' ) );
+	}
+	if ( 'action_required' === $status ) {
+		return caw_fox_fail( $order, $item, 'supplier asked for a confirmation code (login top-up) — not supported, handle manually' );
+	}
+	return 'waiting'; // paid / processing
+}
+
+function caw_fox_fail( $order, $item, $why ) {
+	caw_fox_set( $item->id, '_caw_fox_status', 'failed' );
+	caw_fox_set( $item->id, '_caw_fox_error', $why );
+	caw_fox_note_order( $order->id, 'FAILED for ' . $item->product_name . ' — ' . $why );
+	caw_fox_admin_alert(
+		'Delivery failed — order #' . $order->id,
+		sprintf( "%s could not be delivered automatically.\nReason: %s\n\nSend it manually, then use \"Mark as delivered\" on the order screen — or fix the cause and press Retry.\n%s", $item->product_name, $why, admin_url( 'edit.php?post_type=download&page=edd-payment-history&view=view-order-details&id=' . $order->id ) )
+	);
+	return 'done';
+}
+
+// Safety net for anything a missed cron or webhook left behind (last 2 days).
+add_action( 'caw_fox_reconcile', function () {
+	global $wpdb;
+	$t = $wpdb->prefix . 'edd_order_itemmeta';
+	$ids = $wpdb->get_col( "SELECT DISTINCT i.order_id FROM {$wpdb->prefix}edd_order_items i JOIN $t m ON m.edd_order_item_id = i.id WHERE m.meta_key = '_caw_fox_status' AND m.meta_value IN ('created','pending','balance') AND i.date_created > DATE_SUB(UTC_TIMESTAMP(), INTERVAL 2 DAY) LIMIT 50" ); // phpcs:ignore
+	// Orders that completed but never got a first pass (cron missed entirely).
+	$missed = $wpdb->get_col( "SELECT DISTINCT o.id FROM {$wpdb->prefix}edd_orders o JOIN {$wpdb->prefix}edd_order_items i ON i.order_id = o.id LEFT JOIN $t m ON m.edd_order_item_id = i.id AND m.meta_key = '_caw_fox_status' WHERE o.status = 'complete' AND o.type = 'sale' AND m.meta_id IS NULL AND o.date_completed > DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 DAY) AND o.date_completed < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 3 MINUTE) LIMIT 100" ); // phpcs:ignore
+	foreach ( array_unique( array_merge( $ids, $missed ) ) as $id ) {
+		if ( caw_fox_order_items( (int) $id ) ) {
+			caw_fox_fulfil( (int) $id );
+		}
+	}
+} );
+
+/* ---- Code storage: encrypted at rest; key from wp-config or the site's salts ---- */
+
+function caw_fox_crypto_key() {
+	$src = defined( 'CAW_FOXRELOAD_CODES_KEY' ) ? CAW_FOXRELOAD_CODES_KEY : wp_salt( 'secure_auth' );
+	return sodium_crypto_generichash( 'caw-fox-codes|' . $src, '', SODIUM_CRYPTO_SECRETBOX_KEYBYTES );
+}
+
+function caw_fox_encrypt( $plain ) {
+	$nonce = random_bytes( SODIUM_CRYPTO_SECRETBOX_NONCEBYTES );
+	return 'v1:' . base64_encode( $nonce . sodium_crypto_secretbox( $plain, $nonce, caw_fox_crypto_key() ) );
+}
+
+function caw_fox_decrypt( $stored ) {
+	if ( ! is_string( $stored ) || 0 !== strpos( $stored, 'v1:' ) ) {
+		return false;
+	}
+	$raw = base64_decode( substr( $stored, 3 ), true );
+	if ( false === $raw || strlen( $raw ) <= SODIUM_CRYPTO_SECRETBOX_NONCEBYTES ) {
+		return false;
+	}
+	return sodium_crypto_secretbox_open( substr( $raw, SODIUM_CRYPTO_SECRETBOX_NONCEBYTES ), substr( $raw, 0, SODIUM_CRYPTO_SECRETBOX_NONCEBYTES ), caw_fox_crypto_key() );
+}
+
+function caw_fox_codes( $item_id ) {
+	$json = caw_fox_decrypt( caw_fox_meta( $item_id, '_caw_fox_codes' ) );
+	$list = $json ? json_decode( $json, true ) : array();
+	return is_array( $list ) ? $list : array();
+}
+
+/** Activation instructions for an item, from the last product sync. */
+function caw_fox_guide( $item ) {
+	$c = caw_fox_cache( $item->product_id, $item->price_id );
+	return $c && ! empty( $c['guide'] ) ? force_balance_tags( wp_kses_post( $c['guide'] ) ) : ''; // supplier HTML has stray </p>s
+}
+
+/** HTML for the delivered items of an order (receipt + email share it). */
+function caw_fox_items_html( $order, $for_email = false ) {
+	$html    = '';
+	$pending = false;
+	foreach ( caw_fox_order_items( $order->id ) as $item ) {
+		$status = caw_fox_meta( $item->id, '_caw_fox_status' );
+		$note   = caw_fox_meta( $item->id, '_caw_fox_note' );
+		$html  .= '<div class="caw-fox-item"><h3 class="caw-fox-title">' . esc_html( $item->product_name ) . '</h3>';
+		if ( is_array( $note ) && $note ) {
+			foreach ( $note as $f => $v ) {
+				$html .= '<p class="caw-fox-for">' . esc_html( caw_fox_field_label( $f ) ) . ': <strong>' . esc_html( $v ) . '</strong></p>';
+			}
+		}
+		if ( 'delivered' === $status ) {
+			if ( caw_fox_meta( $item->id, '_caw_fox_service' ) ) {
+				$html .= '<p>' . esc_html__( 'Delivered directly to the account above.', 'mayosis' ) . '</p>';
+			} else {
+				$prefix = caw_fox_is_mock() ? '[TEST — not a real code] ' : '';
+				foreach ( caw_fox_codes( $item->id ) as $code ) {
+					$is_url = (bool) preg_match( '#^https?://#i', $code );
+					$html  .= '<div class="caw-fox-code"><code>' . esc_html( $prefix . $code ) . '</code>';
+					if ( $is_url ) {
+						$html .= ' <a href="' . esc_url( $code ) . '" target="_blank" rel="noopener noreferrer">' . esc_html__( 'Open link', 'mayosis' ) . '</a>';
+					} elseif ( ! $for_email ) {
+						$html .= ' <button type="button" class="caw-fox-copy" data-code="' . esc_attr( $code ) . '">' . esc_html__( 'Copy', 'mayosis' ) . '</button>';
+					}
+					$html .= '</div>';
+				}
+			}
+			$guide = caw_fox_guide( $item );
+			if ( $guide ) {
+				$html .= '<div class="caw-fox-guide"><strong>' . esc_html__( 'How to redeem', 'mayosis' ) . '</strong>' . $guide . '</div>';
+			}
+		} elseif ( 'manual' === $status ) {
+			$html .= '<p>' . esc_html__( 'Delivered by our team — please check your email.', 'mayosis' ) . '</p>';
+		} elseif ( 'failed' === $status ) {
+			$html .= '<p>' . esc_html__( 'We could not deliver this automatically. Our team has been notified and will send it to you or refund you shortly.', 'mayosis' ) . '</p>';
+		} else {
+			$pending = true;
+			$html   .= '<p class="caw-fox-wait">' . esc_html__( 'Preparing your code… this usually takes under a minute.', 'mayosis' ) . '</p>';
+		}
+		$html .= '</div>';
+	}
+	return array( 'html' => $html, 'pending' => $pending );
+}
+
+/** One email per batch of newly delivered items. */
+function caw_fox_send_codes_email( $order ) {
+	$fresh = array();
+	foreach ( caw_fox_order_items( $order->id ) as $item ) {
+		if ( 'delivered' === caw_fox_meta( $item->id, '_caw_fox_status' ) && ! caw_fox_meta( $item->id, '_caw_fox_emailed' ) ) {
+			$fresh[] = $item;
+		}
+	}
+	if ( ! $fresh || ! function_exists( 'EDD' ) || empty( EDD()->emails ) ) {
+		return;
+	}
+	$body = caw_fox_items_html( $order, true );
+	$msg  = '<p>' . esc_html__( 'Thank you for your order. Here is what you bought:', 'mayosis' ) . '</p>' . $body['html'];
+	$msg .= '<p>' . sprintf(
+		/* translators: %s: receipt link */
+		esc_html__( 'You can view these again anytime on your %s.', 'mayosis' ),
+		'<a href="' . esc_url( edd_get_receipt_page_uri( $order->id ) ) . '">' . esc_html__( 'order receipt', 'mayosis' ) . '</a>'
+	) . '</p>';
+	$subject = ( caw_fox_is_mock() ? '[TEST] ' : '' ) . sprintf( __( 'Your code for order #%s is ready', 'mayosis' ), $order->get_number() );
+	EDD()->emails->__set( 'heading', __( 'Your order is ready', 'mayosis' ) );
+	if ( EDD()->emails->send( $order->email, $subject, $msg ) ) {
+		foreach ( $fresh as $item ) {
+			caw_fox_set( $item->id, '_caw_fox_emailed', time() );
+		}
+	}
+}
+
+/* =========================================================================
+   E. Webhook — order.completed carries the codes, so delivery doesn't wait for a poll
+   ========================================================================= */
+
+add_action( 'rest_api_init', function () {
+	register_rest_route( 'caw/v1', '/foxreload', array(
+		'methods'             => 'POST',
+		'permission_callback' => '__return_true', // authenticated by the HMAC signature below
+		'callback'            => 'caw_fox_webhook',
+	) );
+} );
+
+function caw_fox_webhook( WP_REST_Request $req ) {
+	if ( ! defined( 'CAW_FOXRELOAD_WEBHOOK_SECRET' ) || ! CAW_FOXRELOAD_WEBHOOK_SECRET ) {
+		return new WP_REST_Response( array( 'ok' => false ), 503 );
+	}
+	$raw   = $req->get_body();
+	$parts = array();
+	foreach ( explode( ',', (string) $req->get_header( 'x-webhook-signature' ) ) as $p ) {
+		$kv = explode( '=', trim( $p ), 2 );
+		if ( 2 === count( $kv ) ) {
+			$parts[ $kv[0] ] = $kv[1];
+		}
+	}
+	$t = isset( $parts['t'] ) ? (int) $parts['t'] : 0;
+	if ( ! $t || empty( $parts['v1'] ) || abs( time() - $t ) > 300
+		|| ! hash_equals( hash_hmac( 'sha256', $t . '.' . $raw, CAW_FOXRELOAD_WEBHOOK_SECRET ), $parts['v1'] ) ) {
+		return new WP_REST_Response( array( 'ok' => false ), 401 );
+	}
+	$evt = json_decode( $raw, true );
+	if ( empty( $evt['id'] ) || get_transient( 'caw_fox_evt_' . md5( $evt['id'] ) ) ) {
+		return new WP_REST_Response( array( 'ok' => true ), 200 ); // already handled
+	}
+	set_transient( 'caw_fox_evt_' . md5( $evt['id'] ), 1, DAY_IN_SECONDS );
+
+	$key = isset( $evt['data']['idempotencyKey'] ) ? (string) $evt['data']['idempotencyKey'] : '';
+	$prefix = caw_fox_key_prefix();
+	if ( 0 === strpos( $key, $prefix ) && preg_match( '/^(\d+)-(\d+)(?:-r\d+)?$/', substr( $key, strlen( $prefix ) ), $m ) ) {
+		caw_fox_fulfil( (int) $m[1] ); // re-reads the order itself; cheap and keeps one code path
+	}
+	return new WP_REST_Response( array( 'ok' => true ), 200 );
+}
+
+/* =========================================================================
+   F. Receipt — codes load over AJAX so a cached receipt page can never carry them
+   ========================================================================= */
+
+function caw_fox_receipt_box( $order_id ) {
+	// Both the 3.x and the legacy receipt hook can fire; show one box, in the page body.
+	if ( ! caw_fox_order_items( $order_id ) || ! caw_fox_render_once( 'receipt' ) ) {
+		return;
+	}
+	$url  = add_query_arg( array( 'action' => 'caw_fox_codes', 'order' => (int) $order_id ), admin_url( 'admin-ajax.php' ) );
+	?>
+	<section class="caw-fox-receipt" data-url="<?php echo esc_url( $url ); ?>" aria-live="polite">
+		<h2><?php esc_html_e( 'Your codes', 'mayosis' ); ?></h2>
+		<div class="caw-fox-body"><p class="caw-fox-wait"><?php esc_html_e( 'Loading…', 'mayosis' ); ?></p></div>
+	</section>
+	<script>
+	(function () {
+		var box = document.querySelector('.caw-fox-receipt');
+		if (!box) return;
+		var body = box.querySelector('.caw-fox-body'), polls = 0;
+		function load() {
+			fetch(box.getAttribute('data-url'), { credentials: 'same-origin', cache: 'no-store' })
+				.then(function (r) { return r.json(); })
+				.then(function (j) {
+					if (!j || !j.success) { body.innerHTML = '<p>' + (j && j.data ? j.data : '') + '</p>'; return; }
+					body.innerHTML = j.data.html;
+					if (j.data.pending && ++polls < 40) setTimeout(load, 8000);
+				})
+				.catch(function () { if (++polls < 40) setTimeout(load, 8000); });
+		}
+		box.addEventListener('click', function (e) {
+			var b = e.target.closest('.caw-fox-copy');
+			if (!b || !navigator.clipboard) return;
+			navigator.clipboard.writeText(b.getAttribute('data-code')).then(function () {
+				var t = b.textContent; b.textContent = '✓'; setTimeout(function () { b.textContent = t; }, 1500);
+			});
+		});
+		load();
+	})();
+	</script>
+	<?php
+}
+add_action( 'edd_order_receipt_after_table', function ( $order ) {
+	caw_fox_receipt_box( $order->id );
+} );
+add_action( 'edd_payment_receipt_after_table', function ( $payment ) {
+	caw_fox_receipt_box( $payment->ID );
+} );
+
+add_action( 'wp_ajax_nopriv_caw_fox_codes', function () {
+	nocache_headers();
+	wp_send_json_error( esc_html__( 'Please log in to see your codes. They were also emailed to you.', 'mayosis' ), 401 );
+} );
+add_action( 'wp_ajax_caw_fox_codes', function () {
+	nocache_headers();
+	$order = edd_get_order( isset( $_GET['order'] ) ? absint( $_GET['order'] ) : 0 ); // phpcs:ignore WordPress.Security.NonceVerification -- read-only, ownership-checked
+	if ( ! $order || ( (int) $order->user_id !== get_current_user_id() && ! current_user_can( 'view_shop_sensitive_data' ) ) ) {
+		wp_send_json_error( esc_html__( 'Order not found.', 'mayosis' ), 404 );
+	}
+	if ( 'complete' !== $order->status ) {
+		wp_send_json_success( array( 'html' => '<p class="caw-fox-wait">' . esc_html__( 'Waiting for your payment to confirm…', 'mayosis' ) . '</p>', 'pending' => true ) );
+	}
+	$out = caw_fox_items_html( $order );
+	// The buyer is watching: don't wait for WP-cron (which only runs on uncached hits) — push the
+	// order along here, at most every 15s. The lock + idempotency key make overlap with cron harmless.
+	if ( $out['pending'] && ! get_transient( 'caw_fox_nudge_' . $order->id ) ) {
+		set_transient( 'caw_fox_nudge_' . $order->id, 1, 15 );
+		caw_fox_fulfil( $order->id );
+		$out = caw_fox_items_html( $order );
+	}
+	wp_send_json_success( $out );
+} );
+
+/* =========================================================================
+   G. Admin — product mapping box, order box, Tools → Foxreload
+   ========================================================================= */
+
+add_action( 'add_meta_boxes_download', function () {
+	add_meta_box( 'caw-foxreload', 'Foxreload supplier', 'caw_fox_render_product_box', 'download', 'normal', 'default' );
+} );
+
+function caw_fox_render_product_box( $post ) {
+	$map    = caw_fox_map( $post->ID );
+	$prices = edd_has_variable_prices( $post->ID ) ? edd_get_variable_prices( $post->ID ) : array( 0 => array( 'name' => 'Price', 'amount' => edd_get_download_price( $post->ID ) ) );
+	wp_nonce_field( 'caw_fox_product', 'caw_fox_nonce' );
+	echo '<p>Map each price option to a Foxreload product ID (<code>product_…</code>) to deliver it automatically. Leave blank for manual delivery. Stock and cost refresh hourly and on save. Mode: <strong>' . ( caw_fox_is_mock() ? 'MOCK (test codes)' : 'LIVE' ) . '</strong>.</p>';
+	echo '<table class="widefat striped"><thead><tr><th>Option</th><th>Price</th><th>Foxreload product ID</th><th>Cost</th><th>Margin</th><th>Stock</th><th>Status</th></tr></thead><tbody>';
+	foreach ( $prices as $pid => $p ) {
+		$c    = caw_fox_cache( $post->ID, $pid );
+		$sell = (float) $p['amount'];
+		$cost = $c && ! empty( $c['cost'] ) ? (float) $c['cost'] : 0;
+		echo '<tr><td>' . esc_html( $p['name'] ) . '</td><td>$' . esc_html( number_format( $sell, 2 ) ) . '</td>';
+		echo '<td><input type="text" class="regular-text code" name="caw_fox_items[' . (int) $pid . ']" value="' . esc_attr( isset( $map['items'][ $pid ] ) ? $map['items'][ $pid ] : '' ) . '" placeholder="product_…"></td>';
+		echo '<td>' . ( $cost ? '$' . esc_html( number_format( $cost, 2 ) ) : '—' ) . '</td>';
+		echo '<td>' . ( $cost && $sell ? esc_html( round( ( 1 - $cost / $sell ) * 100 ) ) . '%' : '—' ) . '</td>';
+		echo '<td>' . ( $c && isset( $c['qty'] ) ? esc_html( number_format( $c['qty'] ) ) : '—' ) . '</td>';
+		echo '<td>' . ( ! $c ? '—' : ( $c['ok'] ? '✅ on sale' : '⛔ ' . esc_html( $c['reason'] ) ) ) . ( $c && ! empty( $c['req'] ) ? '<br><small>asks for: ' . esc_html( implode( ', ', $c['req'] ) ) . '</small>' : '' ) . '</td></tr>';
+	}
+	echo '</tbody></table>';
+	$axes = isset( $map['axes'] ) ? $map['axes'] : array( '', '' );
+	echo '<p>Selector labels for "A – B" option names (e.g. Region / Amount): ';
+	echo '<input type="text" name="caw_fox_axes[0]" value="' . esc_attr( $axes[0] ) . '" placeholder="Region" style="width:120px"> ';
+	echo '<input type="text" name="caw_fox_axes[1]" value="' . esc_attr( isset( $axes[1] ) ? $axes[1] : '' ) . '" placeholder="Amount" style="width:120px"></p>';
+}
+
+add_action( 'save_post_download', function ( $post_id ) {
+	if ( ! isset( $_POST['caw_fox_nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['caw_fox_nonce'] ) ), 'caw_fox_product' ) || ! current_user_can( 'edit_product', $post_id ) || wp_is_post_revision( $post_id ) ) {
+		return;
+	}
+	$items = array();
+	foreach ( (array) ( isset( $_POST['caw_fox_items'] ) ? wp_unslash( $_POST['caw_fox_items'] ) : array() ) as $pid => $fox ) { // phpcs:ignore WordPress.Security.ValidatedSanitizedInput
+		$fox = trim( sanitize_text_field( $fox ) );
+		if ( preg_match( '/^product_[a-z0-9]+$/i', $fox ) ) {
+			$items[ (int) $pid ] = $fox;
+		}
+	}
+	if ( ! $items ) {
+		delete_post_meta( $post_id, '_caw_fox' );
+		delete_post_meta( $post_id, '_caw_fox_cache' );
+		return;
+	}
+	$axes = array_map( 'sanitize_text_field', array_slice( (array) ( isset( $_POST['caw_fox_axes'] ) ? wp_unslash( $_POST['caw_fox_axes'] ) : array() ), 0, 2 ) ); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput
+	update_post_meta( $post_id, '_caw_fox', array( 'items' => $items, 'axes' => $axes ) );
+	caw_fox_sync_download( $post_id );
+}, 99 );
+
+add_action( 'edd_view_order_details_main_after', function ( $order_id ) {
+	$items = caw_fox_order_items( $order_id );
+	if ( ! $items ) {
+		return;
+	}
+	echo '<div class="postbox"><h3 class="hndle" style="padding:10px 12px;margin:0">Foxreload delivery</h3><div class="inside"><table class="widefat striped"><thead><tr><th>Item</th><th>Status</th><th>Foxreload order</th><th>Details</th><th></th></tr></thead><tbody>';
+	foreach ( $items as $item ) {
+		$status = caw_fox_meta( $item->id, '_caw_fox_status' ) ?: 'queued';
+		$remote = caw_fox_meta( $item->id, '_caw_fox_remote' );
+		$detail = '';
+		$note   = caw_fox_meta( $item->id, '_caw_fox_note' );
+		if ( is_array( $note ) ) {
+			foreach ( $note as $f => $v ) {
+				$detail .= esc_html( caw_fox_field_label( $f ) . ': ' . $v ) . '<br>';
+			}
+		}
+		if ( 'failed' === $status ) {
+			$detail .= '<span style="color:#b32d2e">' . esc_html( caw_fox_meta( $item->id, '_caw_fox_error' ) ) . '</span>';
+		}
+		if ( 'delivered' === $status && current_user_can( 'view_shop_sensitive_data' ) ) {
+			$detail .= '<details><summary>Show codes</summary><code>' . esc_html( implode( "\n", caw_fox_codes( $item->id ) ) ) . '</code></details>';
+		}
+		$actions = '';
+		if ( in_array( $status, array( 'failed', 'balance', 'queued' ), true ) && ! in_array( $remote, array( 'paid', 'processing', 'completed' ), true ) ) {
+			$actions .= '<a class="button" href="' . esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=caw_fox_retry&item=' . $item->id ), 'caw_fox_item_' . $item->id ) ) . '">Retry</a> ';
+		}
+		if ( 'delivered' !== $status && 'manual' !== $status ) {
+			$actions .= '<a class="button" href="' . esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=caw_fox_manual&item=' . $item->id ), 'caw_fox_item_' . $item->id ) ) . '" onclick="return confirm(\'Mark as delivered by hand?\')">Mark as delivered</a>';
+		}
+		echo '<tr><td>' . esc_html( $item->product_name ) . ' ×' . (int) $item->quantity . '</td><td><strong>' . esc_html( $status ) . '</strong>' . ( $remote ? '<br><small>remote: ' . esc_html( $remote ) . '</small>' : '' ) . '</td><td><code>' . esc_html( caw_fox_meta( $item->id, '_caw_fox_order' ) ) . '</code></td><td>' . $detail . '</td><td>' . $actions . '</td></tr>'; // phpcs:ignore WordPress.Security.EscapeOutput
+	}
+	echo '</tbody></table></div></div>';
+} );
+
+function caw_fox_admin_item_action( $cb ) {
+	$item_id = isset( $_GET['item'] ) ? absint( $_GET['item'] ) : 0; // phpcs:ignore WordPress.Security.NonceVerification
+	check_admin_referer( 'caw_fox_item_' . $item_id );
+	if ( ! current_user_can( 'edit_shop_payments' ) ) {
+		wp_die( 'Not allowed' );
+	}
+	$item = edd_get_order_item( $item_id );
+	if ( ! $item ) {
+		wp_die( 'Unknown item' );
+	}
+	$cb( $item );
+	wp_safe_redirect( admin_url( 'edit.php?post_type=download&page=edd-payment-history&view=view-order-details&id=' . $item->order_id ) );
+	exit;
+}
+
+add_action( 'admin_post_caw_fox_retry', function () {
+	caw_fox_admin_item_action( function ( $item ) {
+		// A refunded/failed Foxreload order can't be re-paid: start a fresh one under a new reference.
+		if ( caw_fox_meta( $item->id, '_caw_fox_order' ) ) {
+			caw_fox_set( $item->id, '_caw_fox_try', (int) caw_fox_meta( $item->id, '_caw_fox_try' ) + 1 );
+		}
+		foreach ( array( '_caw_fox_order', '_caw_fox_status', '_caw_fox_remote', '_caw_fox_error' ) as $k ) {
+			edd_delete_order_item_meta( $item->id, $k );
+		}
+		edd_update_order_meta( $item->order_id, '_caw_fox_polls', 0 );
+		caw_fox_note_order( $item->order_id, 'retry requested by ' . wp_get_current_user()->user_login . '.' );
+		caw_fox_fulfil( $item->order_id );
+	} );
+} );
+
+add_action( 'admin_post_caw_fox_manual', function () {
+	caw_fox_admin_item_action( function ( $item ) {
+		caw_fox_set( $item->id, '_caw_fox_status', 'manual' );
+		caw_fox_note_order( $item->order_id, $item->product_name . ' marked as delivered by hand (' . wp_get_current_user()->user_login . ').' );
+	} );
+} );
+
+add_action( 'admin_menu', function () {
+	add_management_page( 'Foxreload', 'Foxreload', 'manage_shop_settings', 'caw-foxreload', 'caw_fox_render_tools_page' );
+} );
+
+add_action( 'admin_post_caw_fox_tools', function () {
+	check_admin_referer( 'caw_fox_tools' );
+	if ( ! current_user_can( 'manage_shop_settings' ) ) {
+		wp_die( 'Not allowed' );
+	}
+	$do  = isset( $_POST['do'] ) ? sanitize_key( $_POST['do'] ) : '';
+	$msg = '';
+	if ( 'sync' === $do ) {
+		caw_fox_sync_all();
+		$msg = 'Synced.';
+	} elseif ( 'webhook' === $do ) {
+		$res = caw_fox_api( 'POST', '/api/webhooks/', array( 'name' => 'Crypto Awaz', 'url' => rest_url( 'caw/v1/foxreload' ), 'events' => array( 'order.completed' ) ) );
+		if ( $res['error'] ) {
+			$msg = 'Webhook not created: ' . caw_fox_error_text( $res );
+		} else {
+			// Shown once, never stored — it belongs in wp-config.php.
+			$secret = isset( $res['data']['secret'] ) ? $res['data']['secret'] : ( isset( $res['data']['signingSecret'] ) ? $res['data']['signingSecret'] : '' );
+			set_transient( 'caw_fox_secret_once_' . get_current_user_id(), $secret, 300 );
+			$msg = 'Webhook created. Copy the secret below into wp-config.php now — it is not shown again.';
+		}
+	}
+	set_transient( 'caw_fox_msg_' . get_current_user_id(), $msg, 60 );
+	wp_safe_redirect( admin_url( 'tools.php?page=caw-foxreload' ) );
+	exit;
+} );
+
+function caw_fox_render_tools_page() {
+	$uid    = get_current_user_id();
+	$msg    = get_transient( 'caw_fox_msg_' . $uid );
+	$secret = get_transient( 'caw_fox_secret_once_' . $uid );
+	delete_transient( 'caw_fox_msg_' . $uid );
+	delete_transient( 'caw_fox_secret_once_' . $uid );
+	echo '<div class="wrap"><h1>Foxreload</h1>';
+	if ( $msg ) {
+		echo '<div class="notice notice-info"><p>' . esc_html( $msg ) . '</p></div>';
+	}
+	if ( $secret ) {
+		echo '<div class="notice notice-warning"><p><code>define( \'CAW_FOXRELOAD_WEBHOOK_SECRET\', \'' . esc_html( $secret ) . '\' );</code></p></div>';
+	}
+	if ( ! caw_fox_enabled() ) {
+		echo '<p>Add <code>CAW_FOXRELOAD_API_KEY</code> to wp-config.php.</p></div>';
+		return;
+	}
+	$bal = caw_fox_api( 'GET', '/api/access/me/balances/' );
+	$usd = '—';
+	foreach ( (array) $bal['data'] as $b ) {
+		if ( isset( $b['currency'] ) && 'usd' === strtolower( $b['currency'] ) ) {
+			$usd = '$' . $b['available'] . ( (float) $b['reserved'] ? ' (+ $' . $b['reserved'] . ' reserved)' : '' );
+		}
+	}
+	$hooks = caw_fox_api( 'GET', '/api/webhooks/' );
+	$last  = (int) get_option( 'caw_fox_last_sync' );
+	echo '<table class="form-table"><tr><th>Mode</th><td><strong>' . ( caw_fox_is_mock() ? 'MOCK — test orders, fake codes, no balance spent' : 'LIVE — real purchases' ) . '</strong></td></tr>';
+	echo '<tr><th>USD balance</th><td>' . esc_html( $bal['error'] ? caw_fox_error_text( $bal ) : $usd ) . '</td></tr>';
+	echo '<tr><th>Minimum margin</th><td>' . esc_html( caw_fox_min_margin() * 100 ) . '%</td></tr>';
+	echo '<tr><th>Last sync</th><td>' . ( $last ? esc_html( human_time_diff( $last ) . ' ago' ) : 'never' ) . '</td></tr>';
+	echo '<tr><th>Webhook</th><td>' . ( defined( 'CAW_FOXRELOAD_WEBHOOK_SECRET' ) ? 'secret configured' : 'no secret in wp-config (polling only)' ) . '; registered: ' . esc_html( (string) count( (array) ( isset( $hooks['data']['items'] ) ? $hooks['data']['items'] : $hooks['data'] ) ) ) . '</td></tr></table>';
+	echo '<h2>Mapped products</h2><ul>';
+	foreach ( caw_fox_mapped_downloads() as $id ) {
+		echo '<li><a href="' . esc_url( get_edit_post_link( $id ) ) . '">' . esc_html( get_the_title( $id ) ) . '</a></li>';
+	}
+	echo '</ul><form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
+	wp_nonce_field( 'caw_fox_tools' );
+	echo '<input type="hidden" name="action" value="caw_fox_tools">';
+	echo '<button class="button button-primary" name="do" value="sync">Sync stock &amp; prices now</button> ';
+	echo '<button class="button" name="do" value="webhook" onclick="return confirm(\'Register ' . esc_js( rest_url( 'caw/v1/foxreload' ) ) . ' with Foxreload?\')">Register webhook</button>';
+	echo '</form></div>';
+}

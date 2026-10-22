@@ -2340,3 +2340,77 @@ body.sp-night-mode-on .cawhome .ch-hero-search:focus-within {
     .ch-post:hover,
     .ch-faq-q:hover { transform: none !important; }
 }
+
+/* =============================================================================
+   FOXRELOAD — checkout delivery field + codes on the receipt (caw-foxreload.php)
+   Same palette as the product page; dark via body.sp-night-mode-on.
+   ============================================================================= */
+.caw-fox-fields,
+.caw-fox-receipt {
+    --caw-fox-card: #f5f8fc;
+    --caw-fox-line: #e3e8f0;
+    --caw-fox-code: #ffffff;
+    --caw-fox-muted: #5a6b88;
+}
+body.sp-night-mode-on .caw-fox-fields,
+body.sp-night-mode-on .caw-fox-receipt {
+    --caw-fox-card: #192237;
+    --caw-fox-line: #28375a;
+    --caw-fox-code: #0f1626;
+    --caw-fox-muted: #9fb0d0;
+}
+.caw-fox-fields {
+    margin: 16px 0;
+    padding: 14px 16px;
+    border: 1px solid var(--caw-fox-line);
+    border-left: 3px solid #1e73be;
+    border-radius: 10px;
+    background: var(--caw-fox-card);
+}
+.caw-fox-fields-intro { margin: 0 0 10px; font-size: 14px; color: var(--caw-fox-muted); }
+.caw-fox-field:last-child { margin-bottom: 0; }
+
+.caw-fox-receipt { margin: 28px 0; }
+.caw-fox-receipt h2 { font-size: 20px; margin: 0 0 12px; }
+.caw-fox-item {
+    margin-bottom: 14px;
+    padding: 16px;
+    border: 1px solid var(--caw-fox-line);
+    border-radius: 12px;
+    background: var(--caw-fox-card);
+    min-width: 0;
+}
+.caw-fox-title { font-size: 16px; margin: 0 0 8px; }
+.caw-fox-for { margin: 0 0 8px; font-size: 14px; color: var(--caw-fox-muted); }
+.caw-fox-code {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin: 8px 0;
+}
+.caw-fox-code code {
+    flex: 1 1 260px;
+    min-width: 0;
+    padding: 10px 12px;
+    border: 1px dashed #1e73be;
+    border-radius: 8px;
+    background: var(--caw-fox-code);
+    font-size: 15px;
+    letter-spacing: .02em;
+    overflow-wrap: anywhere;
+    user-select: all;
+}
+.caw-fox-copy {
+    padding: 8px 14px;
+    border: 0;
+    border-radius: 8px;
+    background: #1e73be;
+    color: #fff;
+    font-weight: 600;
+    cursor: pointer;
+}
+body.sp-night-mode-on .caw-fox-copy { color: #fff !important; }
+.caw-fox-guide { margin-top: 12px; font-size: 14px; }
+.caw-fox-guide ol { padding-left: 20px; }
+.caw-fox-wait { color: var(--caw-fox-muted); font-style: italic; }
