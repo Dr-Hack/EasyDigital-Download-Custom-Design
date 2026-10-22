@@ -82,6 +82,28 @@ while ( have_posts() ) :
 
                 <?php if ( ! empty( $model['variable'] ) ) : ?>
 
+                    <?php
+                    // When two plans share no duration at all (e.g. Valorant: Turkey sells 375/825… VP,
+                    // Europe 475/1000…), greying the other plan's sizes would leave half the row dead.
+                    // Hide missing combos instead; products with overlapping axes keep the greyed look.
+                    $hide_missing = false;
+                    if ( ! empty( $model['two_axis'] ) ) {
+                        $plan_durs = array();
+                        foreach ( $model['map'] as $key => $pid ) {
+                            $kp                     = explode( '|||', $key );
+                            $plan_durs[ $kp[0] ][] = isset( $kp[1] ) ? $kp[1] : '';
+                        }
+                        $pd_list = array_values( $plan_durs );
+                        for ( $a = 0; $a < count( $pd_list ) && ! $hide_missing; $a++ ) {
+                            for ( $b = $a + 1; $b < count( $pd_list ); $b++ ) {
+                                if ( ! array_intersect( $pd_list[ $a ], $pd_list[ $b ] ) ) {
+                                    $hide_missing = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    ?>
                     <?php if ( ! empty( $model['two_axis'] ) ) : ?>
                         <!-- Plan axis -->
                         <div class="caw-selblock">
@@ -104,8 +126,10 @@ while ( have_posts() ) :
                                 <div class="caw-durs" role="radiogroup" aria-labelledby="caw-lbl-dur">
                                     <?php foreach ( $model['durs'] as $i => $d ) :
                                         $dur_active = isset( $model['default_dur'] ) ? ( $d === $model['default_dur'] ) : ( 0 === $i );
+                                        // Hidden server-side too, so the other plan's sizes don't flash before JS runs.
+                                        $dur_hide = $hide_missing && ! isset( $model['map'][ $model['default_plan'] . '|||' . $d ] );
                                         ?>
-                                        <div class="caw-dur<?php echo $dur_active ? ' caw-active' : ''; ?>" role="radio" data-dur="<?php echo esc_attr( $d ); ?>"><?php echo esc_html( $d ); ?></div>
+                                        <div class="caw-dur<?php echo $dur_active ? ' caw-active' : ''; ?>" role="radio" data-dur="<?php echo esc_attr( $d ); ?>"<?php echo $dur_hide ? ' style="display:none"' : ''; ?>><?php echo esc_html( $d ); ?></div>
                                     <?php endforeach; ?>
                                 </div>
                             </div>
@@ -318,6 +342,7 @@ while ( have_posts() ) :
     $payload = array(
         'variable'   => ! empty( $model['variable'] ),
         'twoAxis'    => ! empty( $model['two_axis'] ),
+        'hideMissing' => ! empty( $hide_missing ),
         'defaultPid' => isset( $model['default_pid'] ) ? (int) $model['default_pid'] : -1,
         'map'        => isset( $model['map'] ) ? $model['map'] : new stdClass(),
         'pidPrice'   => isset( $model['pidPrice'] ) ? $model['pidPrice'] : new stdClass(),
@@ -438,10 +463,12 @@ while ( have_posts() ) :
             return !(s && s.tracked && s.soldOut);
         }
         function refreshTwoAxis() {
-            // grey out durations unavailable (missing or sold out) for the active plan
+            // grey out durations unavailable (missing or sold out) for the active plan;
+            // with hideMissing, combos that don't exist are hidden instead (sold out stays greyed)
             box.querySelectorAll('.caw-dur').forEach(function (d) {
                 var dv = d.getAttribute('data-dur');
                 d.classList.toggle('caw-disabled', !comboAvail(state.plan, dv));
+                if (DATA.hideMissing) d.style.display = (DATA.map[state.plan + '|||' + dv] === undefined) ? 'none' : '';
             });
             // if current duration invalid, pick first available
             if (!comboAvail(state.plan, state.dur)) {
