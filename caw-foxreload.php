@@ -8,7 +8,9 @@
  *     of stock, or whose cost has eaten the margin, shows as sold out;
  *   - products that need a delivery detail (e.g. a PUBG Player ID) ask for it at checkout;
  *   - when an order completes, each mapped item is bought from Foxreload, and the
- *     codes are stored encrypted on the order item, shown on the receipt and emailed.
+ *     codes are stored encrypted on the order item, shown on the receipt and emailed;
+ *   - virtual bank cards (e.g. X Premium+) are issued or topped up the same way; the receipt
+ *     shows the owner the card details, the bank's live 3-D Secure codes and the card's activity.
  *
  * wp-config.php:
  *   CAW_FOXRELOAD_API_KEY         required.
@@ -123,6 +125,16 @@ function caw_fox_sell_price( $download_id, $price_id ) {
 	return (float) edd_get_download_price( $download_id );
 }
 
+/** Supplier delivery type of one option: code, direct_topup, banking_card (issues a virtual card), banking_card_topup, … */
+function caw_fox_type( $download_id, $price_id ) {
+	$c = caw_fox_cache( $download_id, $price_id );
+	return $c && ! empty( $c['type'] ) ? $c['type'] : 'code';
+}
+
+function caw_fox_is_card_type( $type ) {
+	return in_array( $type, array( 'banking_card', 'banking_card_topup' ), true );
+}
+
 /** Buyable right now: in stock at the supplier and still profitable at the last sync. */
 function caw_fox_available( $download_id, $price_id ) {
 	$c = caw_fox_cache( $download_id, $price_id );
@@ -172,6 +184,7 @@ function caw_fox_sync_download( $download_id ) {
 				'opts'   => isset( $p['noteFieldOptions'] ) ? (array) $p['noteFieldOptions'] : array(),
 				'name'   => isset( $p['name'] ) ? (string) $p['name'] : '',
 				'guide'  => isset( $p['userGuide'] ) ? (string) $p['userGuide'] : '',
+				'type'   => isset( $p['deliveryType'] ) ? (string) $p['deliveryType'] : 'code',
 				'at'     => time(),
 			);
 		}
@@ -316,6 +329,7 @@ function caw_fox_field_label( $field ) {
 		'username'     => __( 'Username', 'mayosis' ),
 		'server'       => __( 'Server', 'mayosis' ),
 		'server_id'    => __( 'Server ID', 'mayosis' ),
+		'card_id'      => __( 'Card to renew', 'mayosis' ),
 	);
 	return isset( $labels[ $field ] ) ? $labels[ $field ] : ucwords( str_replace( '_', ' ', $field ) );
 }
@@ -326,7 +340,8 @@ function caw_fox_field_is_numeric( $field ) {
 }
 
 add_action( 'edd_purchase_form_user_info_fields', function () {
-	$rows = '';
+	$rows     = '';
+	$game_ids = false;
 	foreach ( caw_fox_cart_lines() as $key => $line ) {
 		$req = ! empty( $line['cache']['req'] ) ? $line['cache']['req'] : array();
 		foreach ( $req as $field ) {
@@ -334,9 +349,19 @@ add_action( 'edd_purchase_form_user_info_fields', function () {
 			$id    = 'caw-fox-' . (int) $key . '-' . sanitize_key( $field );
 			$value = isset( $_POST['caw_fox_note'][ $key ][ $field ] ) ? sanitize_text_field( wp_unslash( $_POST['caw_fox_note'][ $key ][ $field ] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification
 			$title = edd_get_cart_item_name( $line['item'] );
+			$opts  = ! empty( $line['cache']['opts'][ $field ] ) ? (array) $line['cache']['opts'][ $field ] : array();
+			if ( 'card_id' === $field ) {
+				// A renewal tops up a card this customer already bought — offer only theirs, never a free-text id.
+				$opts = caw_fox_card_options( get_current_user_id() );
+				if ( ! $opts ) {
+					$rows .= '<p class="caw-fox-field caw-fox-nocard">' . esc_html( sprintf( __( '%s tops up a card you bought from us. Please log in with the account you used for that order.', 'mayosis' ), $title ) ) . '</p>';
+					continue;
+				}
+			} else {
+				$game_ids = true;
+			}
 			$rows .= '<p class="caw-fox-field">';
 			$rows .= '<label class="edd-label" for="' . esc_attr( $id ) . '">' . esc_html( caw_fox_field_label( $field ) . ' — ' . $title ) . ' <span class="edd-required-indicator">*</span></label>';
-			$opts = ! empty( $line['cache']['opts'][ $field ] ) ? (array) $line['cache']['opts'][ $field ] : array();
 			if ( $opts ) {
 				$rows .= '<select class="edd-select required" id="' . esc_attr( $id ) . '" name="' . esc_attr( $name ) . '" required>';
 				foreach ( $opts as $o ) {
@@ -357,7 +382,9 @@ add_action( 'edd_purchase_form_user_info_fields', function () {
 		return;
 	}
 	echo '<div class="caw-fox-fields">';
-	echo '<p class="caw-fox-fields-intro">' . esc_html__( 'Your order is delivered to this ID, so please double-check it. In PUBG Mobile, tap your avatar (top-left) to copy your numeric Player ID.', 'mayosis' ) . '</p>';
+	echo '<p class="caw-fox-fields-intro">' . ( $game_ids
+		? esc_html__( 'Your order is delivered to this ID, so please double-check it. In PUBG Mobile, tap your avatar (top-left) to copy your numeric Player ID.', 'mayosis' )
+		: esc_html__( 'Choose the card to top up. The money is added to it a minute or two after your payment confirms.', 'mayosis' ) ) . '</p>';
 	echo $rows; // phpcs:ignore WordPress.Security.EscapeOutput -- escaped above
 	echo '</div>';
 } );
@@ -370,12 +397,24 @@ add_action( 'edd_checkout_error_checks', function ( $valid_data, $post ) {
 			edd_set_error( 'caw_fox_unavailable_' . $key, sprintf( __( '%s is out of stock right now. Please remove it from your cart.', 'mayosis' ), $title ) );
 			continue;
 		}
+		// Card details and bank codes are shown only to the logged-in owner, so a card needs an account.
+		$type = caw_fox_type( $line['item']['id'], $line['price_id'] );
+		if ( caw_fox_is_card_type( $type ) && ! is_user_logged_in() && empty( $valid_data['need_new_user'] ) && empty( $valid_data['need_user_login'] ) ) {
+			edd_set_error( 'caw_fox_account_' . $key, sprintf( __( 'Please log in or create an account to buy %s. Your card details are kept in your account.', 'mayosis' ), $title ) );
+			continue;
+		}
 		$qty = edd_get_cart_item_quantity( $line['item']['id'], $line['item']['options'] );
 		if ( ! empty( $line['cache']['max'] ) && $qty > $line['cache']['max'] ) {
 			edd_set_error( 'caw_fox_qty_' . $key, sprintf( __( 'You can buy at most %1$d of %2$s per order.', 'mayosis' ), $line['cache']['max'], $title ) );
 		}
 		foreach ( (array) $line['cache']['req'] as $field ) {
 			$v = isset( $notes[ $key ][ $field ] ) ? trim( sanitize_text_field( wp_unslash( $notes[ $key ][ $field ] ) ) ) : '';
+			if ( 'card_id' === $field ) {
+				if ( ! isset( caw_fox_user_cards( get_current_user_id() )[ $v ] ) ) {
+					edd_set_error( 'caw_fox_note_' . $key . '_card', sprintf( __( 'Please choose which of your cards to top up with %s. Log in first if you are not logged in.', 'mayosis' ), $title ) );
+				}
+				continue;
+			}
 			if ( '' === $v ) {
 				edd_set_error( 'caw_fox_note_' . $key . '_' . $field, sprintf( __( 'Please enter your %1$s for %2$s.', 'mayosis' ), caw_fox_field_label( $field ), $title ) );
 			} elseif ( caw_fox_field_is_numeric( $field ) && ! preg_match( '/^\d{5,20}$/', $v ) ) {
@@ -408,7 +447,8 @@ add_action( 'edd_built_order', function ( $order_id, $order_data ) {
    D. Fulfilment
    Item meta: _caw_fox_status (created|pending|balance|delivered|failed|manual),
    _caw_fox_order (Foxreload order id), _caw_fox_remote (its status), _caw_fox_codes
-   (encrypted), _caw_fox_service, _caw_fox_error, _caw_fox_try, _caw_fox_emailed.
+   (encrypted), _caw_fox_service, _caw_fox_error, _caw_fox_try, _caw_fox_emailed;
+   virtual cards: _caw_fox_card (issued) or _caw_fox_card_topup (funded), _caw_fox_card_last4, _caw_fox_card_name.
    ========================================================================= */
 
 /**
@@ -598,6 +638,10 @@ function caw_fox_apply_remote( $order, $item, $fo ) {
 		if ( ! empty( $fi['error'] ) ) {
 			return caw_fox_fail( $order, $item, 'supplier error: ' . $fi['error'] );
 		}
+		$type = isset( $fi['product']['deliveryType'] ) ? $fi['product']['deliveryType'] : '';
+		if ( caw_fox_is_card_type( $type ) ) {
+			return caw_fox_apply_card( $order, $item, $fi, $type );
+		}
 		$codes = isset( $fi['externalData'] ) ? array_values( array_filter( array_map( 'strval', (array) $fi['externalData'] ), 'strlen' ) ) : array();
 		$is_service = ! empty( $fi['product']['isService'] );
 		if ( ! $codes && ! $is_service ) {
@@ -620,6 +664,35 @@ function caw_fox_apply_remote( $order, $item, $fo ) {
 		return caw_fox_fail( $order, $item, 'supplier asked for a confirmation code (login top-up) — not supported, handle manually' );
 	}
 	return 'waiting'; // paid / processing
+}
+
+/**
+ * A completed card order. A new card's id comes back in externalData; a top-up returns nothing,
+ * the card it funded is the one the customer chose at checkout. Only the id is kept — the card
+ * number and CVV are fetched live when the owner asks for them (see section G).
+ */
+function caw_fox_apply_card( $order, $item, $fi, $type ) {
+	if ( 'banking_card' === $type ) {
+		$card = ! empty( $fi['externalData'][0] ) ? (string) $fi['externalData'][0] : ( ! empty( $fi['externalId'] ) ? (string) $fi['externalId'] : '' );
+		$meta = '_caw_fox_card';
+	} else {
+		$note = caw_fox_meta( $item->id, '_caw_fox_note' );
+		$card = is_array( $note ) && ! empty( $note['card_id'] ) ? (string) $note['card_id'] : '';
+		$meta = '_caw_fox_card_topup';
+	}
+	if ( ! caw_fox_is_card_id( $card ) ) {
+		return caw_fox_fail( $order, $item, 'completed without a card id' );
+	}
+	caw_fox_set( $item->id, $meta, $card );
+	$info = caw_fox_api( 'GET', '/api/banking-cards/' . $card );
+	if ( ! $info['error'] ) {
+		caw_fox_set( $item->id, '_caw_fox_card_last4', sanitize_text_field( (string) $info['data']['last4'] ) );
+		caw_fox_set( $item->id, '_caw_fox_card_name', sanitize_text_field( (string) $info['data']['nameOnCard'] ) );
+	}
+	caw_fox_set( $item->id, '_caw_fox_status', 'delivered' );
+	$last4 = (string) caw_fox_meta( $item->id, '_caw_fox_card_last4' );
+	caw_fox_note_order( $order->id, sprintf( '%s card •••• %s for %s.', 'banking_card' === $type ? 'issued' : 'topped up', $last4 ?: '?', $item->product_name ) );
+	return 'done';
 }
 
 function caw_fox_fail( $order, $item, $why ) {
@@ -704,12 +777,14 @@ function caw_fox_items_html( $order, $for_email = false ) {
 		$html  .= '<p class="caw-fox-product"' . $st( 'margin:0 0 2px;font-size:13px;color:#5a6b88' ) . '>' . esc_html( get_the_title( $item->product_id ) ) . '</p>';
 		$html  .= '<h3 class="caw-fox-title"' . $st( 'margin:0 0 10px;font-size:20px' ) . '>' . esc_html( $option ? $option : $item->product_name ) . '</h3>';
 		if ( is_array( $note ) && $note ) {
-			foreach ( $note as $f => $v ) {
+			foreach ( array_diff_key( $note, array( 'card_id' => 1 ) ) as $f => $v ) { // the card panel names the card
 				$html .= '<p class="caw-fox-for"' . $st( 'margin:0 0 6px;font-size:14px;color:#5a6b88' ) . '>' . esc_html( caw_fox_field_label( $f ) ) . ': <strong' . $st( 'color:#1d2733' ) . '>' . esc_html( $v ) . '</strong></p>';
 			}
 		}
 		if ( 'delivered' === $status ) {
-			if ( caw_fox_meta( $item->id, '_caw_fox_service' ) ) {
+			if ( caw_fox_item_card( $item->id ) ) {
+				$html .= caw_fox_card_html( $item, $for_email );
+			} elseif ( caw_fox_meta( $item->id, '_caw_fox_service' ) ) {
 				$html .= '<p>' . esc_html__( 'Delivered directly to the account above.', 'mayosis' ) . '</p>';
 			} else {
 				$prefix = caw_fox_is_mock() ? '[TEST — not a real code] ' : '';
@@ -768,7 +843,10 @@ function caw_fox_send_codes_email( $order ) {
 		esc_html__( 'You can view these again anytime on your %s.', 'mayosis' ),
 		'<a href="' . esc_url( edd_get_receipt_page_uri( $order->id ) ) . '">' . esc_html__( 'order receipt', 'mayosis' ) . '</a>'
 	) . '</p>';
-	$subject = ( caw_fox_is_mock() ? '[TEST] ' : '' ) . sprintf( __( 'Your code for order #%s is ready', 'mayosis' ), $order->get_number() );
+	$is_card = (bool) array_filter( array_map( function ( $item ) {
+		return caw_fox_item_card( $item->id );
+	}, $fresh ) );
+	$subject = ( caw_fox_is_mock() ? '[TEST] ' : '' ) . sprintf( $is_card ? __( 'Your card for order #%s is ready', 'mayosis' ) : __( 'Your code for order #%s is ready', 'mayosis' ), $order->get_number() );
 	EDD()->emails->__set( 'heading', __( 'Your order is ready', 'mayosis' ) );
 	if ( EDD()->emails->send( $order->email, $subject, $msg ) ) {
 		foreach ( $fresh as $item ) {
@@ -826,29 +904,126 @@ function caw_fox_webhook( WP_REST_Request $req ) {
 
 function caw_fox_receipt_box( $order_id ) {
 	// Both the 3.x and the legacy receipt hook can fire; show one box, in the page body.
-	if ( ! caw_fox_order_items( $order_id ) || ! caw_fox_render_once( 'receipt' ) ) {
+	$items = caw_fox_order_items( $order_id );
+	if ( ! $items || ! caw_fox_render_once( 'receipt' ) ) {
 		return;
 	}
+	$cards = array_filter( $items, function ( $item ) {
+		return caw_fox_is_card_type( caw_fox_type( $item->product_id, $item->price_id ) );
+	} );
 	$url  = add_query_arg( array( 'action' => 'caw_fox_codes', 'order' => (int) $order_id ), admin_url( 'admin-ajax.php' ) );
 	?>
-	<section class="caw-fox-receipt" data-url="<?php echo esc_url( $url ); ?>" aria-live="polite">
-		<h2><?php esc_html_e( 'Your codes', 'mayosis' ); ?></h2>
+	<section class="caw-fox-receipt" data-url="<?php echo esc_url( $url ); ?>" data-card-url="<?php echo esc_url( admin_url( 'admin-ajax.php?action=caw_fox_card' ) ); ?>" aria-live="polite">
+		<h2><?php echo esc_html( count( $cards ) === count( $items ) ? __( 'Your card', 'mayosis' ) : __( 'Your codes', 'mayosis' ) ); ?></h2>
 		<div class="caw-fox-body"><p class="caw-fox-wait"><?php esc_html_e( 'Loading…', 'mayosis' ); ?></p></div>
 	</section>
 	<script>
 	(function () {
 		var box = document.querySelector('.caw-fox-receipt');
 		if (!box) return;
-		var body = box.querySelector('.caw-fox-body'), polls = 0;
+		var body = box.querySelector('.caw-fox-body'), polls = 0, last = '';
 		function load() {
 			fetch(box.getAttribute('data-url'), { credentials: 'same-origin', cache: 'no-store' })
 				.then(function (r) { return r.json(); })
 				.then(function (j) {
 					if (!j || !j.success) { body.innerHTML = '<p>' + (j && j.data ? j.data : '') + '</p>'; return; }
-					body.innerHTML = j.data.html;
+					// Re-render only on change, so an open card panel survives another item's polling.
+					if (j.data.html !== last) {
+						last = j.data.html;
+						body.innerHTML = j.data.html;
+						body.querySelectorAll('.caw-fox-vcard').forEach(cardPanel);
+					}
 					if (j.data.pending && ++polls < 40) setTimeout(load, 8000);
 				})
 				.catch(function () { if (++polls < 40) setTimeout(load, 8000); });
+		}
+
+		/* ---- Virtual card: details on request, live bank codes, balance + activity ---- */
+		function esc(s) {
+			return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; });
+		}
+		function copyBtn(v) {
+			return '<button type="button" class="caw-fox-copy" data-code="' + esc(v) + '"><?php echo esc_js( __( 'Copy', 'mayosis' ) ); ?></button>';
+		}
+		function cardPanel(panel) {
+			var url = box.getAttribute('data-card-url') + '&item=' + panel.getAttribute('data-item');
+			var creds = panel.querySelector('.caw-fox-creds'), reveal = panel.querySelector('.caw-fox-reveal');
+			var codes = panel.querySelector('.caw-fox-3ds-body'), ledger = panel.querySelector('.caw-fox-ledger-body');
+			var started = Date.now(), n = 0, timer = null, seen = '';
+
+			reveal.addEventListener('click', function () {
+				if (!creds.hidden) { creds.hidden = true; creds.innerHTML = ''; reveal.textContent = reveal.getAttribute('data-show'); return; }
+				reveal.disabled = true;
+				fetch(url + '&op=creds', { credentials: 'same-origin', cache: 'no-store' })
+					.then(function (r) { return r.json(); })
+					.then(function (j) {
+						reveal.disabled = false;
+						if (!j || !j.success) { creds.innerHTML = '<p>' + esc(j && j.data) + '</p>'; creds.hidden = false; return; }
+						creds.innerHTML = j.data.rows.map(function (r) {
+							return '<div class="caw-fox-cred"><span>' + esc(r.label) + '</span><code>' + esc(r.value) + '</code>' + (r.copy ? copyBtn(r.copy) : '') + '</div>';
+						}).join('');
+						creds.hidden = false;
+						reveal.textContent = reveal.getAttribute('data-hide');
+					})
+					.catch(function () { reveal.disabled = false; });
+			});
+
+			function renderCodes(list) {
+				var key = list.map(function (c) { return c.id; }).join(',');
+				if (key === seen) return;
+				seen = key;
+				if (!list.length) {
+					codes.innerHTML = '<p class="caw-fox-wait"><span class="caw-fox-spinner" aria-hidden="true"></span><?php echo esc_js( __( 'Waiting for a code… If your bank asks for one while you pay, it appears here within seconds.', 'mayosis' ) ); ?></p>';
+					return;
+				}
+				codes.innerHTML = list.map(function (c, i) {
+					return '<div class="caw-fox-code' + (i ? ' caw-fox-code-old' : '') + '"><code>' + esc(c.code) + '</code>' + copyBtn(c.code) + '</div>'
+						+ '<p class="caw-fox-3ds-meta">' + esc([c.amount, c.merchant].filter(Boolean).join(' · ')) + ' <span data-exp="' + c.expires + '"></span></p>';
+				}).join('');
+				tick();
+			}
+			function tick() {
+				codes.querySelectorAll('[data-exp]').forEach(function (s) {
+					var left = Math.max(0, +s.getAttribute('data-exp') - Math.floor(Date.now() / 1000));
+					s.textContent = left ? '· <?php echo esc_js( __( 'expires in', 'mayosis' ) ); ?> ' + Math.floor(left / 60) + ':' + ('0' + left % 60).slice(-2) : '· <?php echo esc_js( __( 'expired', 'mayosis' ) ); ?>';
+				});
+			}
+			function renderLedger(d) {
+				var rows = d.tx.map(function (t) {
+					return '<li class="is-' + esc(t.status) + '"><span class="caw-fox-tx-m">' + esc(t.merchant) + '</span><strong>' + esc(t.amount) + '</strong>'
+						+ '<small>' + esc(t.date) + ' · <span class="caw-fox-tx-s">' + esc(t.label) + '</span></small></li>';
+				}).join('');
+				ledger.innerHTML = '<p class="caw-fox-balance"><?php echo esc_js( __( 'Balance', 'mayosis' ) ); ?> <strong>' + esc(d.balance) + '</strong></p>'
+					+ (rows ? '<ul class="caw-fox-tx">' + rows + '</ul>' : '<p class="caw-fox-muted"><?php echo esc_js( __( 'No card activity yet.', 'mayosis' ) ); ?></p>');
+			}
+			// Bank codes live for minutes, so look every 5s — for 15 minutes, while the tab is visible.
+			function poll() {
+				timer = null;
+				if (Date.now() - started > 15 * 60000) {
+					codes.insertAdjacentHTML('beforeend', '<p><button type="button" class="caw-fox-resume"><?php echo esc_js( __( 'Check for a new code', 'mayosis' ) ); ?></button></p>');
+					seen = '';
+					return;
+				}
+				if (document.hidden) { timer = setTimeout(poll, 5000); return; }
+				var full = n++ % 6 === 0; // balance + activity every 30s
+				fetch(url + '&op=live' + (full ? '&full=1' : ''), { credentials: 'same-origin', cache: 'no-store' })
+					.then(function (r) { return r.json(); })
+					.then(function (j) {
+						if (j && j.success) {
+							renderCodes(j.data.codes);
+							if (j.data.ledger) renderLedger(j.data.ledger);
+						}
+					})
+					.catch(function () {})
+					.then(function () { timer = setTimeout(poll, 5000); });
+			}
+			panel.addEventListener('click', function (e) {
+				if (!e.target.closest('.caw-fox-resume')) return;
+				started = Date.now(); n = 0;
+				if (!timer) poll();
+			});
+			setInterval(tick, 1000);
+			poll();
 		}
 		box.addEventListener('click', function (e) {
 			var b = e.target.closest('.caw-fox-copy');
@@ -899,7 +1074,178 @@ add_action( 'wp_ajax_caw_fox_codes', function () {
 } );
 
 /* =========================================================================
-   G. Admin — product mapping box, order box, Tools → Foxreload
+   G. Virtual bank cards (deliveryType banking_card / banking_card_topup)
+   The card lives in our Foxreload account; the buyer gets its number to pay a
+   subscription with. We keep only its id: number, CVV and the issuer's one-time
+   3-D Secure codes are fetched live, for the logged-in owner, on the receipt.
+   ========================================================================= */
+
+function caw_fox_is_card_id( $id ) {
+	return is_string( $id ) && (bool) preg_match( '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $id );
+}
+
+/** The card an order item issued or topped up, or ''. */
+function caw_fox_item_card( $item_id ) {
+	return (string) ( caw_fox_meta( $item_id, '_caw_fox_card' ) ?: caw_fox_meta( $item_id, '_caw_fox_card_topup' ) );
+}
+
+/** Cards issued to a customer, newest first: [ card_id => [ 'last4' => …, 'date' => … ] ]. */
+function caw_fox_user_cards( $user_id ) {
+	global $wpdb;
+	if ( ! $user_id ) {
+		return array();
+	}
+	$rows = $wpdb->get_results( $wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+		"SELECT m.meta_value AS card, l.meta_value AS last4, o.date_completed AS date
+		FROM {$wpdb->prefix}edd_orders o
+		JOIN {$wpdb->prefix}edd_order_items i ON i.order_id = o.id
+		JOIN {$wpdb->prefix}edd_order_itemmeta m ON m.edd_order_item_id = i.id AND m.meta_key = '_caw_fox_card'
+		LEFT JOIN {$wpdb->prefix}edd_order_itemmeta l ON l.edd_order_item_id = i.id AND l.meta_key = '_caw_fox_card_last4'
+		WHERE o.user_id = %d AND o.status = 'complete'
+		ORDER BY o.id DESC LIMIT 50",
+		$user_id
+	) );
+	$cards = array();
+	foreach ( (array) $rows as $r ) {
+		$cards[ $r->card ] = array( 'last4' => (string) $r->last4, 'date' => (string) $r->date );
+	}
+	return $cards;
+}
+
+/** Checkout <select> options for a renewal. */
+function caw_fox_card_options( $user_id ) {
+	$opts = array();
+	foreach ( caw_fox_user_cards( $user_id ) as $id => $c ) {
+		$opts[] = array(
+			'value' => $id,
+			/* translators: 1: last 4 digits, 2: purchase date */
+			'label' => sprintf( __( 'Visa •••• %1$s — bought %2$s', 'mayosis' ), $c['last4'] ?: '????', $c['date'] ? wp_date( 'j M Y', strtotime( $c['date'] . ' UTC' ) ) : '' ),
+		);
+	}
+	return $opts;
+}
+
+function caw_fox_card_html( $item, $for_email ) {
+	$last4 = (string) caw_fox_meta( $item->id, '_caw_fox_card_last4' );
+	$topup = ! caw_fox_meta( $item->id, '_caw_fox_card' );
+	if ( $for_email ) {
+		$text = $topup
+			/* translators: %s: last 4 digits */
+			? sprintf( __( 'Your renewal has been added to your card •••• %s.', 'mayosis' ), $last4 )
+			: sprintf( __( 'Your virtual Visa card •••• %s is ready. For your security, the card number, CVV and bank verification codes are shown only on your order receipt. Log in to see them.', 'mayosis' ), $last4 );
+		return '<p style="margin:12px 0;padding:14px;border:2px dotted #1e73be;border-radius:10px;background:#ffffff;font-size:15px">' . esc_html( $text ) . '</p>';
+	}
+	$html  = '<div class="caw-fox-vcard" data-item="' . (int) $item->id . '">';
+	$html .= '<div class="caw-fox-vcard-face"><span class="caw-fox-vcard-brand">VISA</span>'
+		. ( caw_fox_is_mock() ? '<span class="caw-fox-vcard-test">TEST</span>' : '' )
+		. '<span class="caw-fox-vcard-num">•••• •••• •••• ' . esc_html( $last4 ?: '????' ) . '</span>'
+		. '<span class="caw-fox-vcard-name">' . esc_html( (string) caw_fox_meta( $item->id, '_caw_fox_card_name' ) ) . '</span></div>';
+	if ( $topup ) {
+		$html .= '<p class="caw-fox-for">' . esc_html__( 'Your renewal has been added to this card.', 'mayosis' ) . '</p>';
+	}
+	$html .= '<button type="button" class="caw-fox-reveal" data-show="' . esc_attr__( 'Show card details', 'mayosis' ) . '" data-hide="' . esc_attr__( 'Hide card details', 'mayosis' ) . '">' . esc_html__( 'Show card details', 'mayosis' ) . '</button>';
+	$html .= '<div class="caw-fox-creds" hidden></div>';
+	$html .= '<h4 class="caw-fox-label">' . esc_html__( 'Bank verification code', 'mayosis' ) . '</h4><div class="caw-fox-3ds-body"><p class="caw-fox-wait"><span class="caw-fox-spinner" aria-hidden="true"></span>' . esc_html__( 'Loading…', 'mayosis' ) . '</p></div>';
+	$html .= '<h4 class="caw-fox-label">' . esc_html__( 'Balance and activity', 'mayosis' ) . '</h4><div class="caw-fox-ledger-body"><p class="caw-fox-wait">' . esc_html__( 'Loading…', 'mayosis' ) . '</p></div>';
+	return $html . '</div>';
+}
+
+function caw_fox_money( $amount, $currency = 'USD' ) {
+	return ( 'USD' === strtoupper( (string) $currency ) ? '$' : strtoupper( (string) $currency ) . ' ' ) . number_format( (float) $amount, 2 );
+}
+
+add_action( 'wp_ajax_nopriv_caw_fox_card', function () {
+	nocache_headers();
+	wp_send_json_error( esc_html__( 'Please log in to see your card.', 'mayosis' ), 401 );
+} );
+add_action( 'wp_ajax_caw_fox_card', function () {
+	nocache_headers();
+	$item  = edd_get_order_item( isset( $_GET['item'] ) ? absint( $_GET['item'] ) : 0 ); // phpcs:ignore WordPress.Security.NonceVerification -- read-only, ownership-checked
+	$order = $item ? edd_get_order( $item->order_id ) : null;
+	if ( ! $order || ( (int) $order->user_id !== get_current_user_id() && ! current_user_can( 'view_shop_sensitive_data' ) ) ) {
+		wp_send_json_error( esc_html__( 'Card not found.', 'mayosis' ), 404 );
+	}
+	$card = caw_fox_item_card( $item->id );
+	if ( 'complete' !== $order->status || ! caw_fox_is_card_id( $card ) ) {
+		wp_send_json_error( esc_html__( 'Card not found.', 'mayosis' ), 404 );
+	}
+	$base = '/api/banking-cards/' . $card;
+
+	if ( isset( $_GET['op'] ) && 'creds' === $_GET['op'] ) { // phpcs:ignore WordPress.Security.NonceVerification
+		$r = caw_fox_api( 'GET', $base . '/credentials' ); // live from the issuer, never stored
+		if ( $r['error'] ) {
+			wp_send_json_error( esc_html__( 'Card details are unavailable right now. Please try again in a minute.', 'mayosis' ), 503 );
+		}
+		$c    = $r['data'];
+		$pan  = preg_replace( '/\D/', '', (string) $c['pan'] );
+		$exp  = sprintf( '%02d/%02d', (int) $c['expMonth'], (int) $c['expYear'] % 100 );
+		$rows = array(
+			array( 'label' => __( 'Card number', 'mayosis' ), 'value' => trim( chunk_split( $pan, 4, ' ' ) ), 'copy' => $pan ),
+			array( 'label' => __( 'Expiry (MM/YY)', 'mayosis' ), 'value' => $exp, 'copy' => $exp ),
+			array( 'label' => __( 'CVV', 'mayosis' ), 'value' => (string) $c['cvv'], 'copy' => (string) $c['cvv'] ),
+			array( 'label' => __( 'Name on card', 'mayosis' ), 'value' => (string) caw_fox_meta( $item->id, '_caw_fox_card_name' ), 'copy' => (string) caw_fox_meta( $item->id, '_caw_fox_card_name' ) ),
+		);
+		if ( ! empty( $c['threeDsPassword'] ) ) {
+			$rows[] = array( 'label' => __( 'Bank password (if asked)', 'mayosis' ), 'value' => (string) $c['threeDsPassword'], 'copy' => (string) $c['threeDsPassword'] );
+		}
+		wp_send_json_success( array( 'rows' => $rows ) );
+	}
+
+	// Live panel. Several open tabs share one Foxreload call per card every few seconds.
+	$full  = ! empty( $_GET['full'] ); // phpcs:ignore WordPress.Security.NonceVerification
+	$cache = 'caw_fox_live_' . md5( $card . ( $full ? '1' : '0' ) );
+	$out   = get_transient( $cache );
+	if ( false === $out ) {
+		$out   = array( 'codes' => array() );
+		$codes = caw_fox_api( 'GET', '/api/banking-cards/3ds-codes/?cardId=' . $card . ( caw_fox_is_mock() ? '&isMock=true' : '' ) );
+		foreach ( $codes['error'] ? array() : (array) $codes['data'] as $c ) {
+			$exp = strtotime( (string) $c['expiresAt'] );
+			if ( $exp > time() ) {
+				$out['codes'][] = array(
+					'id'       => (string) $c['id'],
+					'code'     => (string) $c['code'],
+					'merchant' => isset( $c['merchant'] ) ? (string) $c['merchant'] : '',
+					'amount'   => ! empty( $c['amount'] ) ? caw_fox_money( $c['amount'], isset( $c['currency'] ) ? $c['currency'] : 'USD' ) : '',
+					'expires'  => $exp,
+				);
+			}
+		}
+		if ( $full ) {
+			$bal    = caw_fox_api( 'GET', $base . '/balance' );
+			$tx     = caw_fox_api( 'GET', $base . '/transactions/?limit=10' );
+			$labels = array(
+				'pending'   => __( 'Pending', 'mayosis' ),
+				'completed' => __( 'Completed', 'mayosis' ),
+				'declined'  => __( 'Declined', 'mayosis' ),
+				'refunded'  => __( 'Refunded', 'mayosis' ),
+				'reversed'  => __( 'Reversed', 'mayosis' ),
+				'blocked'   => __( 'Blocked', 'mayosis' ),
+			);
+			$list = array();
+			foreach ( $tx['error'] ? array() : (array) $tx['data']['items'] as $t ) {
+				$status = (string) $t['status'];
+				// Amounts are unsigned; top-ups come through as a "settlement" named like "Card top-up".
+				$in     = in_array( $t['type'], array( 'refund', 'reversal' ), true ) || preg_match( '/top.?up|\bload|deposit/i', (string) $t['merchantName'] );
+				$list[] = array(
+					'date'     => wp_date( 'j M, H:i', strtotime( (string) $t['occurredAt'] ) ),
+					'merchant' => $t['merchantName'] ? preg_replace( '/\s*\(\d+\)$/', '', (string) $t['merchantName'] ) : ucfirst( (string) $t['type'] ),
+					'amount'   => ( $in ? '+' : '−' ) . caw_fox_money( $t['amount'], $t['currency'] ),
+					'status'   => sanitize_key( $status ),
+					'label'    => ( isset( $labels[ $status ] ) ? $labels[ $status ] : ucfirst( $status ) ) . ( ! empty( $t['declineReason'] ) ? ' — ' . $t['declineReason'] : '' ),
+				);
+			}
+			$out['ledger'] = array(
+				'balance' => $bal['error'] ? '—' : caw_fox_money( $bal['data']['available'], $bal['data']['currency'] ),
+				'tx'      => $list,
+			);
+		}
+		set_transient( $cache, $out, 4 );
+	}
+	wp_send_json_success( $out );
+} );
+
+/* =========================================================================
+   H. Admin — product mapping box, order box, Tools → Foxreload
    ========================================================================= */
 
 add_action( 'add_meta_boxes_download', function () {
@@ -978,7 +1324,10 @@ add_action( 'edd_view_order_details_main_after', function ( $order_id ) {
 		if ( 'failed' === $status ) {
 			$detail .= '<span style="color:#b32d2e">' . esc_html( caw_fox_meta( $item->id, '_caw_fox_error' ) ) . '</span>';
 		}
-		if ( 'delivered' === $status && current_user_can( 'view_shop_sensitive_data' ) ) {
+		$card = caw_fox_item_card( $item->id );
+		if ( $card ) {
+			$detail .= ( caw_fox_meta( $item->id, '_caw_fox_card' ) ? 'Card issued' : 'Topped up card' ) . ' •••• ' . esc_html( caw_fox_meta( $item->id, '_caw_fox_card_last4' ) ) . '<br><small><code>' . esc_html( $card ) . '</code></small>';
+		} elseif ( 'delivered' === $status && current_user_can( 'view_shop_sensitive_data' ) ) {
 			$detail .= '<details><summary>Show codes</summary><code>' . esc_html( implode( "\n", caw_fox_codes( $item->id ) ) ) . '</code></details>';
 		}
 		$actions = '';

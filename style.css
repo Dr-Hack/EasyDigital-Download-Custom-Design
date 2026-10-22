@@ -2449,3 +2449,92 @@ body.sp-night-mode-on .caw-fox-copy { color: #fff !important; }
     animation: caw-fox-spin .8s linear infinite;
 }
 @keyframes caw-fox-spin { to { transform: rotate(360deg); } }
+
+/* Virtual card (X Premium+ etc.): card face, details on request, live bank code, activity */
+.caw-fox-vcard-face {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    max-width: 340px;
+    aspect-ratio: 1.586;
+    margin: 4px 0 14px;
+    padding: 18px 20px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, #1e73be 0%, #0d3a66 100%);
+    color: #fff;
+    box-shadow: 0 6px 18px rgba(13, 58, 102, .25);
+}
+.caw-fox-vcard-face span { color: #fff !important; }
+.caw-fox-vcard-brand { align-self: flex-end; font-size: 20px; font-weight: 800; font-style: italic; letter-spacing: .04em; }
+.caw-fox-vcard-test {
+    position: absolute;
+    top: 18px;
+    left: 20px;
+    padding: 2px 8px;
+    border-radius: 6px;
+    background: #e8a33d;
+    font-size: 12px;
+    font-weight: 700;
+}
+.caw-fox-vcard-num { font-family: Consolas, Menlo, monospace; font-size: 19px; letter-spacing: .08em; }
+.caw-fox-vcard-name { font-size: 13px; letter-spacing: .1em; text-transform: uppercase; opacity: .85; }
+.caw-fox-reveal,
+.caw-fox-resume {
+    padding: 10px 18px;
+    border: 2px solid #1e73be;
+    border-radius: 8px;
+    background: transparent;
+    color: #1e73be;
+    font-weight: 600;
+    cursor: pointer;
+}
+body.sp-night-mode-on .caw-fox-reveal,
+body.sp-night-mode-on .caw-fox-resume { color: #5aa6ea !important; border-color: #5aa6ea; }
+.caw-fox-creds { margin-top: 12px; }
+.caw-fox-cred {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 6px 6px 12px;
+    margin-bottom: 6px;
+    border-radius: 8px;
+    background: var(--caw-fox-code);
+}
+.caw-fox-cred span { flex: 0 0 150px; font-size: 13px; color: var(--caw-fox-muted); }
+.caw-fox-cred code {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 0;
+    background: none;
+    border: 0;
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: .04em;
+    overflow-wrap: anywhere;
+    user-select: all;
+}
+.caw-fox-cred .caw-fox-copy { padding: 7px 14px; }
+.caw-fox-code-old { opacity: .55; }
+.caw-fox-3ds-meta { margin: -2px 0 10px; font-size: 13px; color: var(--caw-fox-muted); }
+.caw-fox-balance { margin: 0 0 8px; font-size: 15px; }
+.caw-fox-balance strong { font-size: 18px; }
+.caw-fox-muted { color: var(--caw-fox-muted); font-size: 14px; }
+.caw-fox-tx { margin: 0; padding: 0; list-style: none; font-size: 14px; }
+.caw-fox-tx li {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 2px 12px;
+    margin: 0;
+    padding: 8px 0;
+    border-top: 1px solid var(--caw-fox-line);
+}
+.caw-fox-tx-m { min-width: 0; overflow-wrap: anywhere; }
+.caw-fox-tx strong { text-align: right; white-space: nowrap; }
+.caw-fox-tx small { grid-column: 1 / -1; font-size: 12px; color: var(--caw-fox-muted); }
+.caw-fox-tx .is-declined .caw-fox-tx-s { color: #c0392b; }
+@media (max-width: 480px) {
+    .caw-fox-cred { flex-wrap: wrap; }
+    .caw-fox-cred span { flex-basis: 100%; }
+    .caw-fox-vcard-num { font-size: 16px; }
+}
