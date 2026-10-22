@@ -676,23 +676,36 @@ function caw_fox_codes( $item_id ) {
 	return is_array( $list ) ? $list : array();
 }
 
-/** Activation instructions for an item, from the last product sync. */
+/**
+ * Activation instructions for an item: the product's own "How to redeem" text if set
+ * (supplier guides are machine-translated and can be wrong), else the last synced supplier guide.
+ */
 function caw_fox_guide( $item ) {
+	$own = get_post_meta( $item->product_id, '_caw_fox_guide', true );
+	if ( is_string( $own ) && '' !== trim( $own ) ) {
+		return force_balance_tags( wp_kses_post( wpautop( $own ) ) );
+	}
 	$c = caw_fox_cache( $item->product_id, $item->price_id );
 	return $c && ! empty( $c['guide'] ) ? force_balance_tags( wp_kses_post( $c['guide'] ) ) : ''; // supplier HTML has stray </p>s
 }
 
-/** HTML for the delivered items of an order (receipt + email share it). */
+/** HTML for the delivered items of an order (receipt + email share it; the email gets inline styles). */
 function caw_fox_items_html( $order, $for_email = false ) {
+	$st = function ( $css ) use ( $for_email ) {
+		return $for_email ? ' style="' . $css . '"' : '';
+	};
 	$html    = '';
 	$pending = false;
 	foreach ( caw_fox_order_items( $order->id ) as $item ) {
 		$status = caw_fox_meta( $item->id, '_caw_fox_status' );
 		$note   = caw_fox_meta( $item->id, '_caw_fox_note' );
-		$html  .= '<div class="caw-fox-item"><h3 class="caw-fox-title">' . esc_html( $item->product_name ) . '</h3>';
+		$option = edd_has_variable_prices( $item->product_id ) ? edd_get_price_option_name( $item->product_id, $item->price_id ) : '';
+		$html  .= '<div class="caw-fox-item"' . $st( 'margin:0 0 20px;padding:18px;border:1px solid #e3e8f0;border-radius:10px;background:#f5f8fc' ) . '>';
+		$html  .= '<p class="caw-fox-product"' . $st( 'margin:0 0 2px;font-size:13px;color:#5a6b88' ) . '>' . esc_html( get_the_title( $item->product_id ) ) . '</p>';
+		$html  .= '<h3 class="caw-fox-title"' . $st( 'margin:0 0 10px;font-size:20px' ) . '>' . esc_html( $option ? $option : $item->product_name ) . '</h3>';
 		if ( is_array( $note ) && $note ) {
 			foreach ( $note as $f => $v ) {
-				$html .= '<p class="caw-fox-for">' . esc_html( caw_fox_field_label( $f ) ) . ': <strong>' . esc_html( $v ) . '</strong></p>';
+				$html .= '<p class="caw-fox-for"' . $st( 'margin:0 0 6px;font-size:14px;color:#5a6b88' ) . '>' . esc_html( caw_fox_field_label( $f ) ) . ': <strong' . $st( 'color:#1d2733' ) . '>' . esc_html( $v ) . '</strong></p>';
 			}
 		}
 		if ( 'delivered' === $status ) {
@@ -700,20 +713,29 @@ function caw_fox_items_html( $order, $for_email = false ) {
 				$html .= '<p>' . esc_html__( 'Delivered directly to the account above.', 'mayosis' ) . '</p>';
 			} else {
 				$prefix = caw_fox_is_mock() ? '[TEST — not a real code] ' : '';
-				foreach ( caw_fox_codes( $item->id ) as $code ) {
+				$codes  = caw_fox_codes( $item->id );
+				// The email puts heading + codes in one dotted box; the receipt styles them via style.css.
+				$html  .= $for_email ? '<div style="margin:16px 0 4px;padding:16px;border:2px dotted #1e73be;border-radius:10px;background:#ffffff">' : '';
+				$html  .= '<h4 class="caw-fox-label"' . $st( 'margin:0 0 10px;font-size:17px;font-weight:bold;color:#1e73be' ) . '>' . esc_html( _n( 'Your code:', 'Your codes:', count( $codes ), 'mayosis' ) ) . '</h4>';
+				foreach ( $codes as $code ) {
 					$is_url = (bool) preg_match( '#^https?://#i', $code );
-					$html  .= '<div class="caw-fox-code"><code>' . esc_html( $prefix . $code ) . '</code>';
+					$html  .= '<div class="caw-fox-code"' . $st( 'margin:0 0 6px;padding:14px 12px;border-radius:8px;background:#eaf3fb;text-align:center' ) . '>';
+					$html  .= '<code' . $st( 'font-family:Consolas,Menlo,monospace;font-size:22px;font-weight:bold;letter-spacing:.08em;color:#1d2733;word-break:break-all' ) . '>' . esc_html( $prefix . $code ) . '</code>';
 					if ( $is_url ) {
 						$html .= ' <a href="' . esc_url( $code ) . '" target="_blank" rel="noopener noreferrer">' . esc_html__( 'Open link', 'mayosis' ) . '</a>';
 					} elseif ( ! $for_email ) {
-						$html .= ' <button type="button" class="caw-fox-copy" data-code="' . esc_attr( $code ) . '">' . esc_html__( 'Copy', 'mayosis' ) . '</button>';
+						$html .= '<button type="button" class="caw-fox-copy" data-code="' . esc_attr( $code ) . '">' . esc_html__( 'Copy', 'mayosis' ) . '</button>';
 					}
 					$html .= '</div>';
 				}
+				$html .= $for_email ? '<p style="margin:8px 0 0;font-size:12px;color:#5a6b88;text-align:center">' . esc_html__( 'Select the code and copy it exactly as shown.', 'mayosis' ) . '</p></div>' : '';
 			}
 			$guide = caw_fox_guide( $item );
 			if ( $guide ) {
-				$html .= '<div class="caw-fox-guide"><strong>' . esc_html__( 'How to redeem', 'mayosis' ) . '</strong>' . $guide . '</div>';
+				$title = esc_html__( 'How to redeem', 'mayosis' );
+				$html .= $for_email
+					? '<div' . $st( 'margin-top:16px;padding-top:12px;border-top:1px solid #e3e8f0;font-size:14px;line-height:1.6;overflow-wrap:anywhere;word-break:break-word' ) . '><p style="margin:0 0 6px;font-size:16px;font-weight:bold">' . $title . '</p>' . $guide . '</div>'
+					: '<details class="caw-fox-guide" open><summary>' . $title . '</summary><div class="caw-fox-guide-body">' . $guide . '</div></details>';
 			}
 		} elseif ( 'manual' === $status ) {
 			$html .= '<p>' . esc_html__( 'Delivered by our team — please check your email.', 'mayosis' ) . '</p>';
@@ -721,7 +743,7 @@ function caw_fox_items_html( $order, $for_email = false ) {
 			$html .= '<p>' . esc_html__( 'We could not deliver this automatically. Our team has been notified and will send it to you or refund you shortly.', 'mayosis' ) . '</p>';
 		} else {
 			$pending = true;
-			$html   .= '<p class="caw-fox-wait">' . esc_html__( 'Preparing your code… this usually takes under a minute.', 'mayosis' ) . '</p>';
+			$html   .= '<p class="caw-fox-wait"><span class="caw-fox-spinner" aria-hidden="true"></span>' . esc_html__( 'Preparing your code… this usually takes under a minute.', 'mayosis' ) . '</p>';
 		}
 		$html .= '</div>';
 	}
@@ -847,6 +869,11 @@ add_action( 'edd_payment_receipt_after_table', function ( $payment ) {
 	caw_fox_receipt_box( $payment->ID );
 } );
 
+// Gift codes are "Service" downloads with no files: skip the receipt's empty file list.
+add_filter( 'edd_receipt_show_download_files', function ( $show, $download_id ) {
+	return caw_fox_map( $download_id ) ? false : $show;
+}, 10, 2 );
+
 add_action( 'wp_ajax_nopriv_caw_fox_codes', function () {
 	nocache_headers();
 	wp_send_json_error( esc_html__( 'Please log in to see your codes. They were also emailed to you.', 'mayosis' ), 401 );
@@ -901,6 +928,8 @@ function caw_fox_render_product_box( $post ) {
 	echo '<p>Selector labels for "A – B" option names (e.g. Region / Amount): ';
 	echo '<input type="text" name="caw_fox_axes[0]" value="' . esc_attr( $axes[0] ) . '" placeholder="Region" style="width:120px"> ';
 	echo '<input type="text" name="caw_fox_axes[1]" value="' . esc_attr( isset( $axes[1] ) ? $axes[1] : '' ) . '" placeholder="Amount" style="width:120px"></p>';
+	echo '<p><strong>How to redeem</strong> — shown under the code on the receipt and in the email (HTML allowed). Leave blank to use the supplier\'s guide.</p>';
+	echo '<textarea name="caw_fox_guide" rows="8" class="large-text code">' . esc_textarea( (string) get_post_meta( $post->ID, '_caw_fox_guide', true ) ) . '</textarea>';
 }
 
 add_action( 'save_post_download', function ( $post_id ) {
@@ -921,6 +950,12 @@ add_action( 'save_post_download', function ( $post_id ) {
 	}
 	$axes = array_map( 'sanitize_text_field', array_slice( (array) ( isset( $_POST['caw_fox_axes'] ) ? wp_unslash( $_POST['caw_fox_axes'] ) : array() ), 0, 2 ) ); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput
 	update_post_meta( $post_id, '_caw_fox', array( 'items' => $items, 'axes' => $axes ) );
+	$guide = isset( $_POST['caw_fox_guide'] ) ? trim( wp_kses_post( wp_unslash( $_POST['caw_fox_guide'] ) ) ) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput
+	if ( $guide ) {
+		update_post_meta( $post_id, '_caw_fox_guide', $guide );
+	} else {
+		delete_post_meta( $post_id, '_caw_fox_guide' );
+	}
 	caw_fox_sync_download( $post_id );
 }, 99 );
 
