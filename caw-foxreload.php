@@ -352,7 +352,7 @@ add_action( 'edd_purchase_form_user_info_fields', function () {
 			$opts  = ! empty( $line['cache']['opts'][ $field ] ) ? (array) $line['cache']['opts'][ $field ] : array();
 			if ( 'card_id' === $field ) {
 				// A renewal tops up a card this customer already bought — offer only theirs, never a free-text id.
-				$opts = caw_fox_card_options( get_current_user_id() );
+				$opts = caw_fox_card_options( get_current_user_id(), $line['item']['id'] );
 				if ( ! $opts ) {
 					$rows .= '<p class="caw-fox-field caw-fox-nocard">' . esc_html( sprintf( __( '%s tops up a card you bought from us. Please log in with the account you used for that order.', 'mayosis' ), $title ) ) . '</p>';
 					continue;
@@ -410,7 +410,7 @@ add_action( 'edd_checkout_error_checks', function ( $valid_data, $post ) {
 		foreach ( (array) $line['cache']['req'] as $field ) {
 			$v = isset( $notes[ $key ][ $field ] ) ? trim( sanitize_text_field( wp_unslash( $notes[ $key ][ $field ] ) ) ) : '';
 			if ( 'card_id' === $field ) {
-				if ( ! isset( caw_fox_user_cards( get_current_user_id() )[ $v ] ) ) {
+				if ( ! isset( caw_fox_user_cards( get_current_user_id(), $line['item']['id'] )[ $v ] ) ) {
 					edd_set_error( 'caw_fox_note_' . $key . '_card', sprintf( __( 'Please choose which of your cards to top up with %s. Log in first if you are not logged in.', 'mayosis' ), $title ) );
 				}
 				continue;
@@ -855,6 +855,41 @@ function caw_fox_send_codes_email( $order ) {
 	}
 }
 
+/**
+ * {caw_delivery_intro} for the purchase receipt template: the store's "click the link(s) below to
+ * download" line is wrong for cards and codes, which have no files. Put this tag where that line was;
+ * it prints one line per kind of item the order holds.
+ */
+add_action( 'edd_add_email_tags', function () {
+	edd_add_email_tag( 'caw_delivery_intro', 'How this order is delivered: download links, a code by email, or a virtual card on the order page.', 'caw_fox_delivery_intro', 'Delivery intro', array( 'order' ) );
+} );
+
+function caw_fox_delivery_intro( $order_id ) {
+	$kinds = array();
+	foreach ( edd_get_order_items( array( 'order_id' => (int) $order_id, 'number' => 100 ) ) as $item ) {
+		if ( ! caw_fox_item_id( $item->product_id, $item->price_id ) ) {
+			$kinds['files'] = true;
+		} elseif ( caw_fox_is_card_type( caw_fox_type( $item->product_id, $item->price_id ) ) ) {
+			$kinds['card'] = true;
+		} else {
+			$kinds['code'] = true;
+		}
+	}
+	$page  = '<a href="' . esc_url( edd_get_receipt_page_uri( $order_id ) ) . '">';
+	$lines = array();
+	if ( isset( $kinds['card'] ) ) {
+		/* translators: 1: opening link tag, 2: closing link tag */
+		$lines[] = sprintf( __( 'Your virtual card will be ready on your %1$sorder page%2$s within a few minutes. Log in there to see the card details, your balance and activity, and any bank verification codes. For your security, the card number is never sent by email.', 'mayosis' ), $page, '</a>' );
+	}
+	if ( isset( $kinds['code'] ) ) {
+		$lines[] = sprintf( __( 'Your code will be emailed to you separately within a few minutes. It is also shown on your %1$sorder page%2$s, with the steps to redeem it.', 'mayosis' ), $page, '</a>' );
+	}
+	if ( isset( $kinds['files'] ) ) {
+		$lines[] = __( 'Please click on the link(s) below to download your instructions / files:', 'mayosis' );
+	}
+	return implode( '<br><br>', $lines );
+}
+
 /* =========================================================================
    E. Webhook — order.completed carries the codes, so delivery doesn't wait for a poll
    ========================================================================= */
@@ -1089,8 +1124,12 @@ function caw_fox_item_card( $item_id ) {
 	return (string) ( caw_fox_meta( $item_id, '_caw_fox_card' ) ?: caw_fox_meta( $item_id, '_caw_fox_card_topup' ) );
 }
 
-/** Cards issued to a customer, newest first: [ card_id => [ 'last4' => …, 'date' => … ] ]. */
-function caw_fox_user_cards( $user_id ) {
+/**
+ * Cards issued to a customer, newest first: [ card_id => [ 'last4' => …, 'date' => … ] ].
+ * With $download_id, only cards bought from that product: each card is locked to its own service,
+ * and Foxreload would happily top up an X card with a Claude renewal, stranding the money.
+ */
+function caw_fox_user_cards( $user_id, $download_id = 0 ) {
 	global $wpdb;
 	if ( ! $user_id ) {
 		return array();
@@ -1101,9 +1140,11 @@ function caw_fox_user_cards( $user_id ) {
 		JOIN {$wpdb->prefix}edd_order_items i ON i.order_id = o.id
 		JOIN {$wpdb->prefix}edd_order_itemmeta m ON m.edd_order_item_id = i.id AND m.meta_key = '_caw_fox_card'
 		LEFT JOIN {$wpdb->prefix}edd_order_itemmeta l ON l.edd_order_item_id = i.id AND l.meta_key = '_caw_fox_card_last4'
-		WHERE o.user_id = %d AND o.status = 'complete'
+		WHERE o.user_id = %d AND o.status = 'complete' AND ( %d = 0 OR i.product_id = %d )
 		ORDER BY o.id DESC LIMIT 50",
-		$user_id
+		$user_id,
+		(int) $download_id,
+		(int) $download_id
 	) );
 	$cards = array();
 	foreach ( (array) $rows as $r ) {
@@ -1113,9 +1154,9 @@ function caw_fox_user_cards( $user_id ) {
 }
 
 /** Checkout <select> options for a renewal. */
-function caw_fox_card_options( $user_id ) {
+function caw_fox_card_options( $user_id, $download_id ) {
 	$opts = array();
-	foreach ( caw_fox_user_cards( $user_id ) as $id => $c ) {
+	foreach ( caw_fox_user_cards( $user_id, $download_id ) as $id => $c ) {
 		$opts[] = array(
 			'value' => $id,
 			/* translators: 1: last 4 digits, 2: purchase date */
