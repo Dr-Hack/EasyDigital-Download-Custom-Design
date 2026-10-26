@@ -5,7 +5,9 @@
  * Part A is EDD support's workaround for the three bugs we reported (2026-09-01),
  * plus one addition: EDD's own Approve/Unapprove only writes the
  * `edd_review_approved` meta, so we mirror it onto comment_approved.
- * Remove Part A once EDD Reviews ships a fix.
+ * EDD Reviews 2.3.1 fixed the nonce and buyer checks (with a per-download nonce our
+ * 2.3.0-era check would reject), so those stand down from 2.3.1; the plugin still
+ * inserts every review as comment_approved 1, so the moderation filter stays.
  *
  * Part B stops ~1,170 users whose display_name is their email address from
  * having it published (review bylines, JSON-LD, comment classes, author archives).
@@ -20,11 +22,19 @@ if ( ! defined( 'ABSPATH' ) ) {
    A. EDD Reviews hardening (EDD support's snippet)
    ========================================================================= */
 
+/** EDD Reviews 2.3.1+ checks the nonce and the buyer itself. */
+function caw_edd_reviews_patched() {
+	return class_exists( 'EDD_Reviews' ) && version_compare( (string) EDD_Reviews::get_instance()->version, '2.3.1', '>=' );
+}
+
 /**
- * 1 & 2: real nonce check + server-side "verified buyers only".
+ * 1 & 2: real nonce check + server-side "verified buyers only" (2.3.0 only).
  * Priority 1 runs before EDD Reviews' process_review() at 10.
  */
 add_action( 'edd_reviews_process_review', function () {
+	if ( caw_edd_reviews_patched() ) {
+		return;
+	}
 	$nonce = isset( $_POST['edd_reviews_nonce'] ) ? sanitize_text_field( wp_unslash( $_POST['edd_reviews_nonce'] ) ) : '';
 	if ( '' === $nonce || ! wp_verify_nonce( $nonce, 'edd_reviews_nonce' ) ) {
 		wp_die( esc_html__( 'Nonce verification has failed', 'edd-reviews' ), esc_html__( 'Error', 'edd-reviews' ), array( 'response' => 403 ) );
