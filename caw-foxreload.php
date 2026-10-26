@@ -807,10 +807,10 @@ function caw_fox_items_html( $order, $for_email = false ) {
 			}
 			$guide = caw_fox_guide( $item );
 			if ( $guide ) {
-				$title = esc_html__( 'How to redeem', 'mayosis' );
+				$title = caw_fox_item_card( $item->id ) ? esc_html__( 'How to use your card', 'mayosis' ) : esc_html__( 'How to redeem', 'mayosis' );
 				$html .= $for_email
 					? '<div' . $st( 'margin-top:16px;padding-top:12px;border-top:1px solid #e3e8f0;font-size:14px;line-height:1.6;overflow-wrap:anywhere;word-break:break-word' ) . '><p style="margin:0 0 6px;font-size:16px;font-weight:bold">' . $title . '</p>' . $guide . '</div>'
-					: '<details class="caw-fox-guide" open><summary>' . $title . '</summary><div class="caw-fox-guide-body">' . $guide . '</div></details>';
+					: '<details class="caw-fox-guide" open data-caw-collapse><summary>' . $title . '</summary><div class="caw-fox-guide-body">' . $guide . '</div></details>';
 			}
 		} elseif ( 'manual' === $status ) {
 			$html .= '<p>' . esc_html__( 'Delivered by our team — please check your email.', 'mayosis' ) . '</p>';
@@ -948,15 +948,17 @@ function caw_fox_receipt_box( $order_id ) {
 	} );
 	$url  = add_query_arg( array( 'action' => 'caw_fox_codes', 'order' => (int) $order_id ), admin_url( 'admin-ajax.php' ) );
 	?>
-	<section class="caw-fox-receipt" data-url="<?php echo esc_url( $url ); ?>" data-card-url="<?php echo esc_url( admin_url( 'admin-ajax.php?action=caw_fox_card' ) ); ?>" aria-live="polite">
+	<section class="caw-fox-receipt" id="caw-sec-card" data-url="<?php echo esc_url( $url ); ?>" data-card-url="<?php echo esc_url( admin_url( 'admin-ajax.php?action=caw_fox_card' ) ); ?>" data-login="<?php echo esc_url( wp_login_url( edd_get_receipt_page_uri( $order_id ) ) ); ?>" aria-live="polite">
 		<h2><?php echo esc_html( count( $cards ) === count( $items ) ? __( 'Your card', 'mayosis' ) : __( 'Your codes', 'mayosis' ) ); ?></h2>
 		<div class="caw-fox-body"><p class="caw-fox-wait"><?php esc_html_e( 'Loading…', 'mayosis' ); ?></p></div>
+		<noscript><p><?php esc_html_e( 'Please turn on JavaScript to see this. If you can\'t, contact us and we\'ll help.', 'mayosis' ); ?></p></noscript>
 	</section>
 	<script>
 	(function () {
 		var box = document.querySelector('.caw-fox-receipt');
 		if (!box) return;
 		var body = box.querySelector('.caw-fox-body'), polls = 0, last = '';
+		var phone = window.matchMedia ? window.matchMedia('(max-width: 1023px)') : { matches: false };
 		function load() {
 			fetch(box.getAttribute('data-url'), { credentials: 'same-origin', cache: 'no-store' })
 				.then(function (r) { return r.json(); })
@@ -966,44 +968,106 @@ function caw_fox_receipt_box( $order_id ) {
 					if (j.data.html !== last) {
 						last = j.data.html;
 						body.innerHTML = j.data.html;
+						// Phones: secondary sections start closed; the card and the code box stay open.
+						if (phone.matches) body.querySelectorAll('details[data-caw-collapse]').forEach(function (d) { d.open = false; });
 						body.querySelectorAll('.caw-fox-vcard').forEach(cardPanel);
 					}
 					if (j.data.pending && ++polls < 40) setTimeout(load, 8000);
 				})
-				.catch(function () { if (++polls < 40) setTimeout(load, 8000); });
+				.catch(function () {
+					if (++polls < 40) setTimeout(load, 8000);
+					else body.innerHTML = '<p><?php echo esc_js( __( 'We could not load this right now. Please refresh the page, or contact us.', 'mayosis' ) ); ?></p>';
+				});
 		}
 
-		/* ---- Virtual card: details on request, live bank codes, balance + activity ---- */
 		function esc(s) {
 			return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; });
 		}
 		function copyBtn(v) {
 			return '<button type="button" class="caw-fox-copy" data-code="' + esc(v) + '"><?php echo esc_js( __( 'Copy', 'mayosis' ) ); ?></button>';
 		}
+		// Clipboard API where allowed, else the old execCommand path (in-app browsers), else select the
+		// text so a long-press copies it.
+		function copyText(text, btn, node) {
+			function done(ok) {
+				btn.classList.add(ok ? 'is-copied' : 'is-failed');
+				if (btn.classList.contains('caw-fox-copy')) { var t = btn.textContent; btn.textContent = ok ? '✓' : t; setTimeout(function () { btn.textContent = t; }, 1500); }
+				setTimeout(function () { btn.classList.remove('is-copied', 'is-failed'); }, 1500);
+				if (!ok && node && window.getSelection) { var r = document.createRange(); r.selectNodeContents(node); var s = window.getSelection(); s.removeAllRanges(); s.addRange(r); }
+			}
+			function legacy() {
+				var ta = document.createElement('textarea'), ok = false;
+				ta.value = text; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0';
+				document.body.appendChild(ta); ta.select();
+				try { ok = document.execCommand('copy'); } catch (e) {}
+				document.body.removeChild(ta);
+				done(ok);
+			}
+			if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(function () { done(true); }, legacy);
+			else legacy();
+		}
+
+		/* ---- Virtual card: details on the card face on request, live bank codes, balance + activity ---- */
 		function cardPanel(panel) {
 			var url = box.getAttribute('data-card-url') + '&item=' + panel.getAttribute('data-item');
-			var creds = panel.querySelector('.caw-fox-creds'), reveal = panel.querySelector('.caw-fox-reveal');
-			var codes = panel.querySelector('.caw-fox-3ds-body'), ledger = panel.querySelector('.caw-fox-ledger-body');
-			var started = Date.now(), n = 0, timer = null, seen = '';
+			var reveal = panel.querySelector('.caw-fox-reveal'), label = reveal.querySelector('span');
+			var pass = panel.querySelector('.caw-fox-pass'), msg = panel.querySelector('.caw-fox-card-msg'), bal = panel.querySelector('.caw-fox-bal');
+			var codes = panel.querySelector('.caw-fox-3ds-body'), ledger = panel.querySelector('.caw-fox-ledger-body'), state = panel.querySelector('.caw-fox-codestate');
+			var started = Date.now(), n = 0, timer = null, busy = false, seen = null, vals = {}, hideTimer = null;
+			var masks = { pan: panel.getAttribute('data-mask'), exp: '••/••', cvv: '•••', pass: '' };
 
-			reveal.addEventListener('click', function () {
-				if (!creds.hidden) { creds.hidden = true; creds.innerHTML = ''; reveal.textContent = reveal.getAttribute('data-show'); return; }
-				reveal.disabled = true;
-				fetch(url + '&op=creds', { credentials: 'same-origin', cache: 'no-store' })
-					.then(function (r) { return r.json(); })
-					.then(function (j) {
+			function field(f, text) { panel.querySelectorAll('[data-f="' + f + '"]').forEach(function (s) { s.textContent = text; }); }
+			function say(html) { msg.innerHTML = html; msg.hidden = !html; }
+			function hide() {
+				clearTimeout(hideTimer); vals = {};
+				Object.keys(masks).forEach(function (f) { field(f, masks[f]); });
+				pass.hidden = true;
+				panel.classList.remove('is-open');
+				reveal.setAttribute('aria-expanded', 'false');
+				label.textContent = reveal.getAttribute('data-show');
+			}
+			function show() {
+				reveal.disabled = true; say('');
+				label.textContent = '<?php echo esc_js( __( 'Loading…', 'mayosis' ) ); ?>';
+				// Give up after 20s so a stalled request ends in "Try again", never a dead button.
+				var ctl = window.AbortController ? new AbortController() : null, guard = setTimeout(function () { if (ctl) ctl.abort(); }, 20000);
+				fetch(url + '&op=creds', { credentials: 'same-origin', cache: 'no-store', signal: ctl ? ctl.signal : undefined })
+					.then(function (r) { return r.json().then(function (j) { return { status: r.status, j: j }; }); })
+					.then(function (x) {
+						clearTimeout(guard);
 						reveal.disabled = false;
-						if (!j || !j.success) { creds.innerHTML = '<p>' + esc(j && j.data) + '</p>'; creds.hidden = false; return; }
-						creds.innerHTML = j.data.rows.map(function (r) {
-							return '<div class="caw-fox-cred"><span>' + esc(r.label) + '</span><code>' + esc(r.value) + '</code>' + (r.copy ? copyBtn(r.copy) : '') + '</div>';
-						}).join('');
-						creds.hidden = false;
-						reveal.textContent = reveal.getAttribute('data-hide');
+						label.textContent = reveal.getAttribute('data-show');
+						if (!x.j || !x.j.success) {
+							say(401 === x.status
+								? '<?php echo esc_js( __( 'Your login has expired.', 'mayosis' ) ); ?> <a href="' + esc(box.getAttribute('data-login')) + '"><?php echo esc_js( __( 'Log in again', 'mayosis' ) ); ?></a>'
+								: esc(x.j && x.j.data ? x.j.data : '<?php echo esc_js( __( 'Card details are unavailable right now.', 'mayosis' ) ); ?>') + ' <button type="button" class="caw-fox-retry"><?php echo esc_js( __( 'Try again', 'mayosis' ) ); ?></button>');
+							return;
+						}
+						var d = x.j.data;
+						vals = { pan: d.pan_raw, exp: d.exp, cvv: d.cvv, name: d.name, pass: d.pass };
+						field('pan', d.pan); field('exp', d.exp); field('cvv', d.cvv);
+						if (d.pass) { field('pass', d.pass); pass.hidden = false; }
+						panel.classList.add('is-open');
+						reveal.setAttribute('aria-expanded', 'true');
+						label.textContent = reveal.getAttribute('data-hide');
+						hideTimer = setTimeout(hide, 60000);
 					})
-					.catch(function () { reveal.disabled = false; });
+					.catch(function () {
+						clearTimeout(guard);
+						reveal.disabled = false;
+						label.textContent = reveal.getAttribute('data-show');
+						say('<?php echo esc_js( __( 'Could not reach the server. Check your connection.', 'mayosis' ) ); ?> <button type="button" class="caw-fox-retry"><?php echo esc_js( __( 'Try again', 'mayosis' ) ); ?></button>');
+					});
+			}
+			reveal.addEventListener('click', function () { if (panel.classList.contains('is-open')) hide(); else show(); });
+			panel.addEventListener('click', function (e) {
+				if (e.target.closest('.caw-fox-retry')) { show(); return; }
+				var c = e.target.closest('.caw-fox-ic');
+				if (c && vals[c.getAttribute('data-copy')]) copyText(vals[c.getAttribute('data-copy')], c, c.previousElementSibling);
 			});
 
 			function renderCodes(list) {
+				document.querySelectorAll('.caw-rcpt-nav [data-sec="code"]').forEach(function (a) { a.classList.toggle('has-code', list.length > 0); });
 				var key = list.map(function (c) { return c.id; }).join(',');
 				if (key === seen) return;
 				seen = key;
@@ -1013,7 +1077,9 @@ function caw_fox_receipt_box( $order_id ) {
 				}
 				codes.innerHTML = list.map(function (c, i) {
 					return '<div class="caw-fox-code' + (i ? ' caw-fox-code-old' : '') + '"><code>' + esc(c.code) + '</code>' + copyBtn(c.code) + '</div>'
-						+ '<p class="caw-fox-3ds-meta">' + esc([c.amount, c.merchant].filter(Boolean).join(' · ')) + ' <span data-exp="' + c.expires + '"></span></p>';
+						+ '<p class="caw-fox-3ds-meta">' + (c.amount || c.merchant
+							? esc('<?php echo esc_js( __( 'Code for your', 'mayosis' ) ); ?>' + (c.amount ? ' ' + c.amount : '') + ' <?php echo esc_js( __( 'payment', 'mayosis' ) ); ?>' + (c.merchant ? ' <?php echo esc_js( __( 'at', 'mayosis' ) ); ?> ' + c.merchant : '')) + ' '
+							: '') + '<span data-exp="' + c.expires + '"></span></p>';
 				}).join('');
 				tick();
 			}
@@ -1028,19 +1094,19 @@ function caw_fox_receipt_box( $order_id ) {
 					return '<li class="is-' + esc(t.status) + '"><span class="caw-fox-tx-m">' + esc(t.merchant) + '</span><strong>' + esc(t.amount) + '</strong>'
 						+ '<small>' + esc(t.date) + ' · <span class="caw-fox-tx-s">' + esc(t.label) + '</span></small></li>';
 				}).join('');
-				ledger.innerHTML = '<p class="caw-fox-balance"><?php echo esc_js( __( 'Balance', 'mayosis' ) ); ?> <strong>' + esc(d.balance) + '</strong></p>'
-					+ (rows ? '<ul class="caw-fox-tx">' + rows + '</ul>' : '<p class="caw-fox-muted"><?php echo esc_js( __( 'No card activity yet.', 'mayosis' ) ); ?></p>');
+				bal.textContent = d.balance;
+				ledger.innerHTML = rows ? '<ul class="caw-fox-tx">' + rows + '</ul>' : '<p class="caw-fox-muted"><?php echo esc_js( __( 'No card activity yet.', 'mayosis' ) ); ?></p>';
 			}
 			// Bank codes live for minutes, so look every 5s — for 15 minutes, while the tab is visible.
 			function poll() {
 				timer = null;
 				if (Date.now() - started > 15 * 60000) {
-					codes.insertAdjacentHTML('beforeend', '<p><button type="button" class="caw-fox-resume"><?php echo esc_js( __( 'Check for a new code', 'mayosis' ) ); ?></button></p>');
-					seen = '';
+					state.textContent = '<?php echo esc_js( __( 'Stopped checking. Tap the button if your bank sends a new code.', 'mayosis' ) ); ?>';
 					return;
 				}
 				if (document.hidden) { timer = setTimeout(poll, 5000); return; }
 				var full = n++ % 6 === 0; // balance + activity every 30s
+				busy = true;
 				fetch(url + '&op=live' + (full ? '&full=1' : ''), { credentials: 'same-origin', cache: 'no-store' })
 					.then(function (r) { return r.json(); })
 					.then(function (j) {
@@ -1050,39 +1116,127 @@ function caw_fox_receipt_box( $order_id ) {
 						}
 					})
 					.catch(function () {})
-					.then(function () { timer = setTimeout(poll, 5000); });
+					.then(function () { busy = false; timer = setTimeout(poll, 5000); });
 			}
 			panel.addEventListener('click', function (e) {
 				if (!e.target.closest('.caw-fox-resume')) return;
 				started = Date.now(); n = 0;
-				if (!timer) poll();
+				state.textContent = '<?php echo esc_js( __( 'Checking for new codes every 5 seconds', 'mayosis' ) ); ?>';
+				if (!busy) { clearTimeout(timer); poll(); } // a running check carries on with the new window
 			});
 			setInterval(tick, 1000);
 			poll();
 		}
 		box.addEventListener('click', function (e) {
 			var b = e.target.closest('.caw-fox-copy');
-			if (!b || !navigator.clipboard) return;
-			navigator.clipboard.writeText(b.getAttribute('data-code')).then(function () {
-				var t = b.textContent; b.textContent = '✓'; setTimeout(function () { b.textContent = t; }, 1500);
-			});
+			if (b) copyText(b.getAttribute('data-code'), b, b.previousElementSibling);
 		});
 		load();
 	})();
 	</script>
 	<?php
 }
-add_action( 'edd_order_receipt_after_table', function ( $order ) {
+/*
+ * Receipt layout for orders holding cards or codes (the store's receipt is EDD's receipt block, whose
+ * views can't be overridden): the before-table hook opens a two-column wrapper — sticky "on this page"
+ * menu on desktop — puts the card / code box first, and opens a collapsible "Order details"; the
+ * after-table hook closes it. Both hooks fire only for viewers allowed to see the items, so the
+ * wrapper is opened only when that is true. Orders with only downloads keep EDD's own layout.
+ */
+function caw_fox_receipt_open( $order ) {
+	$kinds   = caw_fox_receipt_kinds( $order->id );
+	$session = edd_get_purchase_session();
+	$sees    = is_user_logged_in() || ( ! empty( $session['purchase_key'] ) && $session['purchase_key'] === $order->payment_key );
+	if ( ! $kinds || ! $sees || ! caw_fox_render_once( 'layout' ) ) {
+		caw_fox_receipt_box( $order->id );
+		return;
+	}
+	$files = false;
+	foreach ( $order->get_items() as $item ) {
+		if ( ! caw_fox_item_id( $item->product_id, $item->price_id ) ) {
+			$files = true;
+		}
+	}
+	// [ data-sec, label, CSS selector of the target ].
+	if ( isset( $kinds['card'] ) ) {
+		$nav = array(
+			array( 'card', __( 'Your card', 'mayosis' ), '#caw-sec-card' ),
+			array( 'code', __( 'Verification code', 'mayosis' ), '.caw-fox-sec-code' ),
+			array( 'activity', __( 'Balance & activity', 'mayosis' ), '.caw-fox-ledger' ),
+			array( 'guide', __( 'How to use', 'mayosis' ), '.caw-fox-guide' ),
+		);
+	} else {
+		$nav = array(
+			array( 'card', __( 'Your code', 'mayosis' ), '#caw-sec-card' ),
+			array( 'guide', __( 'How to redeem', 'mayosis' ), '.caw-fox-guide' ),
+		);
+	}
+	$details = $files ? __( 'Downloads & order details', 'mayosis' ) : __( 'Order details', 'mayosis' );
+	$nav[]   = array( 'order', $details, '#caw-sec-order' );
+
+	echo '<div class="caw-rcpt" id="caw-rcpt"><nav class="caw-rcpt-nav" aria-label="' . esc_attr__( 'On this page', 'mayosis' ) . '">';
+	echo '<p class="caw-rcpt-nav-title">' . esc_html( sprintf( __( 'Order #%s', 'mayosis' ), $order->get_number() ) ) . '</p>';
+	foreach ( $nav as $i => $link ) {
+		echo '<a href="#caw-rcpt"' . ( 0 === $i ? ' class="is-active"' : '' ) . ' data-sec="' . esc_attr( $link[0] ) . '" data-target="' . esc_attr( $link[2] ) . '">' . esc_html( $link[1] ) . '</a>';
+	}
+	echo '</nav><div class="caw-rcpt-main">';
 	caw_fox_receipt_box( $order->id );
-} );
+	// Downloads must stay in sight on phones, so only a details-only section collapses there.
+	echo '<details class="caw-rcpt-sec" id="caw-sec-order" open' . ( $files ? '' : ' data-caw-collapse' ) . '><summary>'
+		. esc_html( $details . ' · #' . $order->get_number() . ' · ' . edd_get_status_label( $order->status ) ) . '</summary>';
+	$GLOBALS['caw_rcpt_open'] = true;
+}
+add_action( 'edd_order_receipt_before_table', 'caw_fox_receipt_open' );
+
+add_action( 'edd_order_receipt_after_table', function () {
+	if ( empty( $GLOBALS['caw_rcpt_open'] ) ) {
+		return;
+	}
+	$GLOBALS['caw_rcpt_open'] = false;
+	?>
+	</details></div></div>
+	<script>
+	(function () {
+		var root = document.getElementById('caw-rcpt');
+		if (!root) return;
+		var links = root.querySelectorAll('.caw-rcpt-nav a');
+		if (window.matchMedia && window.matchMedia('(max-width: 1023px)').matches) {
+			root.querySelectorAll('.caw-rcpt-main > details[data-caw-collapse]').forEach(function (d) { d.open = false; });
+		}
+		function target(a) { return root.querySelector(a.getAttribute('data-target')); }
+		root.querySelector('.caw-rcpt-nav').addEventListener('click', function (e) {
+			var a = e.target.closest('a[data-target]'), t = a && target(a);
+			if (!t) return;
+			e.preventDefault();
+			var d = t.closest('details');
+			if (d) d.open = true;
+			t.scrollIntoView({ behavior: 'smooth', block: 'start' });
+		});
+		// Highlight the section in view (the card panel arrives later over AJAX, so look targets up each time).
+		var ticking = false;
+		window.addEventListener('scroll', function () {
+			if (ticking) return;
+			ticking = true;
+			requestAnimationFrame(function () {
+				ticking = false;
+				var active = links[0];
+				links.forEach(function (a) { var t = target(a); if (t && t.getBoundingClientRect().top < 160) active = a; });
+				links.forEach(function (a) { a.classList.toggle('is-active', a === active); });
+			});
+		}, { passive: true });
+	})();
+	</script>
+	<?php
+}, 99 );
 add_action( 'edd_payment_receipt_after_table', function ( $payment ) {
 	caw_fox_receipt_box( $payment->ID );
 } );
 
-// Gift codes are "Service" downloads with no files: skip the receipt's empty file list.
-add_filter( 'edd_receipt_show_download_files', function ( $show, $download_id ) {
+// Gift codes are "Service" downloads with no files: skip the receipt's empty file list. Hooked on the
+// final filter after Software Licensing, whose own callback there replaces the value it is given.
+add_filter( 'edd_order_receipt_show_download_files', function ( $show, $download_id ) {
 	return caw_fox_map( $download_id ) ? false : $show;
-}, 10, 2 );
+}, 20, 2 );
 
 add_action( 'wp_ajax_nopriv_caw_fox_codes', function () {
 	nocache_headers();
@@ -1176,20 +1330,67 @@ function caw_fox_card_html( $item, $for_email ) {
 			: sprintf( __( 'Your virtual Visa card •••• %s is ready. For your security, the card number, CVV and bank verification codes are shown only on your order receipt. Log in to see them.', 'mayosis' ), $last4 );
 		return '<p style="margin:12px 0;padding:14px;border:2px dotted #1e73be;border-radius:10px;background:#ffffff;font-size:15px">' . esc_html( $text ) . '</p>';
 	}
-	$html  = '<div class="caw-fox-vcard" data-item="' . (int) $item->id . '">';
-	$html .= '<div class="caw-fox-vcard-face"><span class="caw-fox-vcard-brand">VISA</span>'
+	// Details sit masked on the card face; Show fetches them live and they mask again after 60s.
+	$mask = '•••• •••• •••• ' . ( $last4 ?: '????' );
+	$copy = function ( $key, $label ) {
+		return '<button type="button" class="caw-fox-ic" data-copy="' . $key . '" aria-label="' . esc_attr( $label ) . '"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button>';
+	};
+	$renew = add_query_arg( 'caw_renew', (int) $item->price_id, get_permalink( $item->product_id ) );
+	$html  = '<div class="caw-fox-vcard" data-item="' . (int) $item->id . '" data-mask="' . esc_attr( $mask ) . '">';
+	$html .= '<div class="caw-fox-vcard-face">'
+		. '<div class="caw-fox-vcard-top"><button type="button" class="caw-fox-reveal" aria-expanded="false" data-show="' . esc_attr__( 'Show details', 'mayosis' ) . '" data-hide="' . esc_attr__( 'Hide', 'mayosis' ) . '">'
+		. '<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>'
+		. '<span>' . esc_html__( 'Show details', 'mayosis' ) . '</span></button>'
 		. ( caw_fox_is_mock() ? '<span class="caw-fox-vcard-test">TEST</span>' : '' )
-		. '<span class="caw-fox-vcard-num">•••• •••• •••• ' . esc_html( $last4 ?: '????' ) . '</span>'
-		. '<span class="caw-fox-vcard-name">' . esc_html( (string) caw_fox_meta( $item->id, '_caw_fox_card_name' ) ) . '</span></div>';
+		. '<span class="caw-fox-vcard-brand">VISA</span></div>'
+		. '<div class="caw-fox-vcard-num"><span data-f="pan">' . esc_html( $mask ) . '</span>' . $copy( 'pan', __( 'Copy card number', 'mayosis' ) ) . '</div>'
+		. '<div class="caw-fox-vcard-meta">'
+		. '<div><small>' . esc_html__( 'Expires', 'mayosis' ) . '</small><span><span data-f="exp">••/••</span>' . $copy( 'exp', __( 'Copy expiry', 'mayosis' ) ) . '</span></div>'
+		. '<div><small>CVV</small><span><span data-f="cvv">•••</span>' . $copy( 'cvv', __( 'Copy CVV', 'mayosis' ) ) . '</span></div></div>'
+		. '<div class="caw-fox-vcard-name"><span data-f="name">' . esc_html( (string) caw_fox_meta( $item->id, '_caw_fox_card_name' ) ) . '</span>' . $copy( 'name', __( 'Copy name on card', 'mayosis' ) ) . '</div>'
+		. '</div>';
+	$html .= '<div class="caw-fox-pass" hidden><span>' . esc_html__( 'Bank password (if asked)', 'mayosis' ) . '</span><code data-f="pass"></code>' . $copy( 'pass', __( 'Copy bank password', 'mayosis' ) ) . '</div>';
+	$html .= '<p class="caw-fox-card-msg" role="alert" hidden></p>';
+	$html .= '<p class="caw-fox-hint">' . esc_html__( 'Details hide again after 60 seconds.', 'mayosis' ) . '</p>';
 	if ( $topup ) {
 		$html .= '<p class="caw-fox-for">' . esc_html__( 'Your renewal has been added to this card.', 'mayosis' ) . '</p>';
 	}
-	$html .= '<button type="button" class="caw-fox-reveal" data-show="' . esc_attr__( 'Show card details', 'mayosis' ) . '" data-hide="' . esc_attr__( 'Hide card details', 'mayosis' ) . '">' . esc_html__( 'Show card details', 'mayosis' ) . '</button>';
-	$html .= '<div class="caw-fox-creds" hidden></div>';
-	$html .= '<h4 class="caw-fox-label">' . esc_html__( 'Bank verification code', 'mayosis' ) . '</h4><div class="caw-fox-3ds-body"><p class="caw-fox-wait"><span class="caw-fox-spinner" aria-hidden="true"></span>' . esc_html__( 'Loading…', 'mayosis' ) . '</p></div>';
-	$html .= '<h4 class="caw-fox-label">' . esc_html__( 'Balance and activity', 'mayosis' ) . '</h4><div class="caw-fox-ledger-body"><p class="caw-fox-wait">' . esc_html__( 'Loading…', 'mayosis' ) . '</p></div>';
+	$html .= '<div class="caw-fox-balrow"><span>' . esc_html__( 'Balance', 'mayosis' ) . ' <strong class="caw-fox-bal">…</strong></span>'
+		. '<a class="caw-fox-recharge" href="' . esc_url( $renew ) . '" target="_blank" rel="noopener">' . esc_html__( 'Recharge your card', 'mayosis' ) . ' ↗</a></div>';
+	$html .= '<h4 class="caw-fox-label caw-fox-sec-code">' . esc_html__( 'Bank verification code', 'mayosis' ) . '</h4><div class="caw-fox-3ds-body"><p class="caw-fox-wait"><span class="caw-fox-spinner" aria-hidden="true"></span>' . esc_html__( 'Loading…', 'mayosis' ) . '</p></div>';
+	$html .= '<div class="caw-fox-codebar"><span class="caw-fox-codestate">' . esc_html__( 'Checking for new codes every 5 seconds', 'mayosis' ) . '</span><button type="button" class="caw-fox-resume">' . esc_html__( 'Check for a new code', 'mayosis' ) . '</button></div>';
+	$html .= '<details class="caw-fox-ledger" open data-caw-collapse><summary>' . esc_html__( 'Balance and activity', 'mayosis' ) . '</summary><div class="caw-fox-ledger-body"><p class="caw-fox-wait">' . esc_html__( 'Loading…', 'mayosis' ) . '</p></div></details>';
 	return $html . '</div>';
 }
+
+/** What the receipt shows for an order, for its section menu: [ 'card' => true ] and/or [ 'code' => true ]. */
+function caw_fox_receipt_kinds( $order_id ) {
+	$kinds = array();
+	foreach ( caw_fox_order_items( $order_id ) as $item ) {
+		$kinds[ caw_fox_is_card_type( caw_fox_type( $item->product_id, $item->price_id ) ) ? 'card' : 'code' ] = true;
+	}
+	return $kinds;
+}
+
+// "Recharge your card" opens the product with the matching Renewal option picked (?caw_renew=<price id bought>).
+add_filter( 'caw_price_model', function ( $model, $id ) {
+	if ( empty( $_GET['caw_renew'] ) || empty( $model['two_axis'] ) || ! caw_fox_map( $id ) ) { // phpcs:ignore WordPress.Security.NonceVerification
+		return $model;
+	}
+	$bought = edd_get_price_option_name( $id, absint( $_GET['caw_renew'] ) ); // phpcs:ignore WordPress.Security.NonceVerification
+	$want   = str_replace( 'New card', 'Renewal', (string) $bought );
+	foreach ( edd_get_variable_prices( $id ) as $pid => $p ) {
+		if ( isset( $p['name'] ) && $p['name'] === $want ) {
+			$key = array_search( (int) $pid, $model['map'], true );
+			if ( false !== $key ) {
+				list( $model['default_plan'], $model['default_dur'] ) = explode( '|||', $key );
+				$model['default_pid'] = (int) $pid;
+			}
+			break;
+		}
+	}
+	return $model;
+}, 20, 2 );
 
 function caw_fox_money( $amount, $currency = 'USD' ) {
 	return ( 'USD' === strtoupper( (string) $currency ) ? '$' : strtoupper( (string) $currency ) . ' ' ) . number_format( (float) $amount, 2 );
@@ -1217,19 +1418,16 @@ add_action( 'wp_ajax_caw_fox_card', function () {
 		if ( $r['error'] ) {
 			wp_send_json_error( esc_html__( 'Card details are unavailable right now. Please try again in a minute.', 'mayosis' ), 503 );
 		}
-		$c    = $r['data'];
-		$pan  = preg_replace( '/\D/', '', (string) $c['pan'] );
-		$exp  = sprintf( '%02d/%02d', (int) $c['expMonth'], (int) $c['expYear'] % 100 );
-		$rows = array(
-			array( 'label' => __( 'Card number', 'mayosis' ), 'value' => trim( chunk_split( $pan, 4, ' ' ) ), 'copy' => $pan ),
-			array( 'label' => __( 'Expiry (MM/YY)', 'mayosis' ), 'value' => $exp, 'copy' => $exp ),
-			array( 'label' => __( 'CVV', 'mayosis' ), 'value' => (string) $c['cvv'], 'copy' => (string) $c['cvv'] ),
-			array( 'label' => __( 'Name on card', 'mayosis' ), 'value' => (string) caw_fox_meta( $item->id, '_caw_fox_card_name' ), 'copy' => (string) caw_fox_meta( $item->id, '_caw_fox_card_name' ) ),
-		);
-		if ( ! empty( $c['threeDsPassword'] ) ) {
-			$rows[] = array( 'label' => __( 'Bank password (if asked)', 'mayosis' ), 'value' => (string) $c['threeDsPassword'], 'copy' => (string) $c['threeDsPassword'] );
-		}
-		wp_send_json_success( array( 'rows' => $rows ) );
+		$c   = $r['data'];
+		$pan = preg_replace( '/\D/', '', (string) $c['pan'] );
+		wp_send_json_success( array(
+			'pan'     => trim( chunk_split( $pan, 4, ' ' ) ),
+			'pan_raw' => $pan,
+			'exp'     => sprintf( '%02d/%02d', (int) $c['expMonth'], (int) $c['expYear'] % 100 ),
+			'cvv'     => (string) $c['cvv'],
+			'name'    => (string) caw_fox_meta( $item->id, '_caw_fox_card_name' ),
+			'pass'    => isset( $c['threeDsPassword'] ) ? (string) $c['threeDsPassword'] : '',
+		) );
 	}
 
 	// Live panel. Several open tabs share one Foxreload call per card every few seconds.
