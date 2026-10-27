@@ -1545,7 +1545,12 @@ add_action( 'save_post_download', function ( $post_id ) {
 	} else {
 		delete_post_meta( $post_id, '_caw_fox_guide' );
 	}
-	caw_fox_sync_download( $post_id );
+	// save_post_download fires before EDD saves the prices (save_post, 10) — sync after, or the margin check uses the old price.
+	add_action( 'save_post', function ( $id ) use ( $post_id ) {
+		if ( (int) $id === (int) $post_id ) {
+			caw_fox_sync_download( $post_id );
+		}
+	}, 99 );
 }, 99 );
 
 add_action( 'edd_view_order_details_main_after', function ( $order_id ) {
