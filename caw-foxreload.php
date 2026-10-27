@@ -243,7 +243,11 @@ add_action( 'init', function () {
 
 function caw_fox_admin_alert( $subject, $body ) {
 	$to = function_exists( 'edd_get_admin_notice_emails' ) ? edd_get_admin_notice_emails() : get_option( 'admin_email' );
-	wp_mail( $to, '[Crypto Awaz] ' . $subject, $body . "\n\n" . admin_url( 'tools.php?page=caw-foxreload' ) );
+	// Plain-text email: titles arrive texturized ("&#038;", "&#8211;").
+	$plain = function ( $s ) {
+		return html_entity_decode( $s, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+	};
+	wp_mail( $to, '[Crypto Awaz] ' . $plain( $subject ), $plain( $body ) . "\n\n" . admin_url( 'tools.php?page=caw-foxreload' ) );
 }
 
 /* =========================================================================
