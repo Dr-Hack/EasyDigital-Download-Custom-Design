@@ -18,6 +18,7 @@
  *                                 Production must define it as false to buy real codes.
  *   CAW_FOXRELOAD_WEBHOOK_SECRET  optional; enables the order.completed webhook (Tools → Foxreload).
  *   CAW_FOXRELOAD_MIN_MARGIN      optional, default 0.05 — never buy when cost > price × (1 − margin).
+ *   CAW_FOXRELOAD_REPRICE_THRESHOLD  optional, default 0.02 — automatic pricing skips moves smaller than this.
  *
  * Foxreload docs: https://public-api.foxreload.com/openapi.json (the /docs page omits webhooks).
  */
@@ -116,11 +117,19 @@ function caw_fox_cache( $download_id, $price_id ) {
 	return ( is_array( $c ) && isset( $c[ $k ] ) ) ? $c[ $k ] : null;
 }
 
-/** What the customer pays for one option today (sale prices included). */
+/**
+ * What the customer pays for one option today (sale prices included). Reads the raw rows: the
+ * sale plugin swaps in its sale price on the front end only, so edd_get_variable_prices() would
+ * give the regular price in wp-admin and the sale price in cron.
+ */
 function caw_fox_sell_price( $download_id, $price_id ) {
 	if ( edd_has_variable_prices( $download_id ) ) {
-		$prices = edd_get_variable_prices( $download_id );
-		return isset( $prices[ $price_id ]['amount'] ) ? (float) $prices[ $price_id ]['amount'] : 0.0;
+		$prices = get_post_meta( $download_id, 'edd_variable_prices', true );
+		$row    = is_array( $prices ) && isset( $prices[ $price_id ] ) ? $prices[ $price_id ] : array();
+		if ( isset( $row['sale_price'] ) && '' !== (string) $row['sale_price'] ) {
+			return (float) $row['sale_price'];
+		}
+		return isset( $row['amount'] ) ? (float) $row['amount'] : 0.0;
 	}
 	return (float) edd_get_download_price( $download_id );
 }
@@ -141,11 +150,123 @@ function caw_fox_available( $download_id, $price_id ) {
 	return $c && ! empty( $c['ok'] );
 }
 
+/* ---- Automatic pricing: supplier cost + markup, sliding from the cheapest option to the dearest ---- */
+
+/** Only reprice when the price would move by at least this much, so cent-level cost wobbles don't churn prices. */
+function caw_fox_reprice_threshold() {
+	return defined( 'CAW_FOXRELOAD_REPRICE_THRESHOLD' ) ? (float) CAW_FOXRELOAD_REPRICE_THRESHOLD : 0.02;
+}
+
+/** Lowest markup % the margin guard lets through (5% margin = 5.27% markup), rounded up. */
+function caw_fox_min_markup() {
+	$m = caw_fox_min_margin();
+	return ceil( $m / ( 1 - $m ) * 1000 ) / 10;
+}
+
 /**
- * Refresh stock + cost for every mapped option of one product.
- * Returns human-readable lines for options that changed availability.
+ * `_caw_fox['markup']` = [ 'reg' => [ cheapest %, dearest % ], 'sale' => [ … ] ]; an empty 'reg' means manual prices.
+ * Equal ends = a flat markup.
  */
-function caw_fox_sync_download( $download_id ) {
+function caw_fox_markup( $download_id ) {
+	$m   = caw_fox_map( $download_id );
+	$out = array( 'reg' => array(), 'sale' => array() );
+	foreach ( array( 'reg', 'sale' ) as $k ) {
+		if ( ! empty( $m['markup'][ $k ] ) && 2 === count( $m['markup'][ $k ] ) ) {
+			$out[ $k ] = array_map( 'floatval', array_values( $m['markup'][ $k ] ) );
+		}
+	}
+	return $out;
+}
+
+/** Markup % for one cost: the cheapest option gets $range[0], the dearest $range[1], log-spaced between. */
+function caw_fox_curve_pct( $range, $cost, $cmin, $cmax ) {
+	if ( $cmax <= $cmin || $cost <= $cmin ) {
+		return $range[0];
+	}
+	$t = min( 1, ( log( $cost ) - log( $cmin ) ) / ( log( $cmax ) - log( $cmin ) ) );
+	return $range[0] + ( $range[1] - $range[0] ) * $t;
+}
+
+/** Round UP to a shop price: under $20 → x.x9, under $100 → x.49 / x.99, else x.99 (at most ~1–2.5% added). */
+function caw_fox_shop_price( $x ) {
+	$c    = (int) ceil( round( $x * 100, 4 ) );
+	$step = $c < 2000 ? 10 : ( $c < 10000 ? 50 : 100 );
+	$k    = (int) ceil( ( $c - ( $step - 1 ) ) / $step );
+	return ( $k * $step + $step - 1 ) / 100;
+}
+
+/**
+ * Set the regular (and sale) price of every mapped, in-stock option from its cost.
+ * Returns change lines for the alert email. $exact (a manual save) skips the small-move threshold.
+ */
+function caw_fox_reprice( $download_id, $costs, $exact = false ) {
+	$mk = caw_fox_markup( $download_id );
+	if ( ! $mk['reg'] || ! $costs || ! edd_has_variable_prices( $download_id ) ) {
+		return array();
+	}
+	$rows = get_post_meta( $download_id, 'edd_variable_prices', true );
+	if ( ! is_array( $rows ) ) {
+		return array();
+	}
+	$cmin    = min( $costs );
+	$cmax    = max( $costs );
+	$floor   = caw_fox_min_markup();
+	$moved   = function ( $old, $new ) use ( $exact ) {
+		return $exact ? abs( $new - $old ) >= 0.005 : ( $old <= 0 || abs( $new - $old ) / $old >= caw_fox_reprice_threshold() );
+	};
+	$changes = array();
+	$dirty   = false;
+	foreach ( $costs as $pid => $cost ) {
+		if ( ! isset( $rows[ $pid ] ) ) {
+			continue;
+		}
+		$row  = $rows[ $pid ];
+		$name = isset( $row['name'] ) ? $row['name'] : (string) $pid;
+		$reg  = caw_fox_shop_price( $cost * ( 1 + max( $floor, caw_fox_curve_pct( $mk['reg'], $cost, $cmin, $cmax ) ) / 100 ) );
+		$old  = isset( $row['amount'] ) ? (float) $row['amount'] : 0.0;
+		if ( $moved( $old, $reg ) ) {
+			$rows[ $pid ]['amount'] = edd_sanitize_amount( $reg );
+			$changes[] = sprintf( '%s — %s: price $%s → $%s', get_the_title( $download_id ), $name, number_format( $old, 2 ), number_format( $reg, 2 ) );
+			$dirty     = true;
+		}
+		$old_sale = isset( $row['sale_price'] ) && '' !== (string) $row['sale_price'] ? (float) $row['sale_price'] : 0.0;
+		if ( $mk['sale'] ) {
+			$sale = caw_fox_shop_price( $cost * ( 1 + max( $floor, caw_fox_curve_pct( $mk['sale'], $cost, $cmin, $cmax ) ) / 100 ) );
+			$sale = $sale < min( $reg, (float) $rows[ $pid ]['amount'] ) ? $sale : 0.0; // a "sale" at or above the regular price is no sale
+			if ( ( $sale && $moved( $old_sale, $sale ) ) || ( ! $sale && $old_sale ) ) {
+				$rows[ $pid ]['sale_price'] = $sale ? edd_sanitize_amount( $sale ) : '';
+				$changes[] = sprintf( '%s — %s: sale price %s → %s', get_the_title( $download_id ), $name, $old_sale ? '$' . number_format( $old_sale, 2 ) : 'none', $sale ? '$' . number_format( $sale, 2 ) : 'none' );
+				$dirty     = true;
+			}
+		}
+	}
+	if ( ! $mk['sale'] ) {
+		// Automatic pricing without a sale markup: a leftover hand-typed sale price would undercut it,
+		// including on options whose cost didn't come through this time.
+		foreach ( array_keys( caw_fox_map( $download_id )['items'] ) as $pid ) {
+			if ( isset( $rows[ $pid ]['sale_price'] ) && '' !== (string) $rows[ $pid ]['sale_price'] ) {
+				$changes[] = sprintf( '%s — %s: sale price $%s removed', get_the_title( $download_id ), isset( $rows[ $pid ]['name'] ) ? $rows[ $pid ]['name'] : $pid, number_format( (float) $rows[ $pid ]['sale_price'], 2 ) );
+				$rows[ $pid ]['sale_price'] = '';
+				$dirty = true;
+			}
+		}
+	}
+	if ( $dirty ) {
+		update_post_meta( $download_id, 'edd_variable_prices', $rows );
+		// EDD keeps the lowest option in edd_price for sorting and "From $x".
+		update_post_meta( $download_id, 'edd_price', edd_sanitize_amount( min( array_map( function ( $r ) {
+			return (float) $r['amount'];
+		}, $rows ) ) ) );
+	}
+	return $changes;
+}
+
+/**
+ * Refresh stock + cost for every mapped option of one product, reprice it if automatic
+ * pricing is on, then decide what is buyable.
+ * Returns human-readable lines for options that changed price or availability.
+ */
+function caw_fox_sync_download( $download_id, $exact = false ) {
 	$map = caw_fox_map( $download_id );
 	if ( ! $map ) {
 		delete_post_meta( $download_id, '_caw_fox_cache' );
@@ -154,7 +275,7 @@ function caw_fox_sync_download( $download_id ) {
 	$old     = get_post_meta( $download_id, '_caw_fox_cache', true );
 	$old     = is_array( $old ) ? $old : array();
 	$cache   = array();
-	$changes = array();
+	$fresh   = array();
 	foreach ( $map['items'] as $pid => $fox_id ) {
 		$res = caw_fox_api( 'GET', '/api/products/' . rawurlencode( $fox_id ) );
 		if ( $res['error'] ) {
@@ -167,16 +288,10 @@ function caw_fox_sync_download( $download_id ) {
 			$p    = $res['data'];
 			$cost = isset( $p['price'] ) && null !== $p['price'] ? (float) $p['price'] : 0.0;
 			$qty  = isset( $p['quantity'] ) ? (int) $p['quantity'] : 0;
-			$sell = caw_fox_sell_price( $download_id, $pid );
-			$reason = '';
-			if ( $qty < 1 || $cost <= 0 ) {
-				$reason = 'out of stock at supplier';
-			} elseif ( $cost > $sell * ( 1 - caw_fox_min_margin() ) ) {
-				$reason = sprintf( 'unprofitable: cost $%s vs price $%s', number_format( $cost, 2 ), number_format( $sell, 2 ) );
-			}
+			$fresh[ $pid ] = true;
 			$cache[ $pid ] = array(
-				'ok'     => '' === $reason,
-				'reason' => $reason,
+				'ok'     => false,
+				'reason' => '',
 				'cost'   => $cost,
 				'qty'    => $qty,
 				'max'    => isset( $p['orderMaxQuantity'] ) ? (int) $p['orderMaxQuantity'] : 0,
@@ -187,6 +302,28 @@ function caw_fox_sync_download( $download_id ) {
 				'type'   => isset( $p['deliveryType'] ) ? (string) $p['deliveryType'] : 'code',
 				'at'     => time(),
 			);
+		}
+	}
+
+	$costs = array();
+	foreach ( $fresh as $pid => $_ ) {
+		if ( $cache[ $pid ]['qty'] > 0 && $cache[ $pid ]['cost'] > 0 ) {
+			$costs[ $pid ] = $cache[ $pid ]['cost'];
+		}
+	}
+	$changes = caw_fox_reprice( $download_id, $costs, $exact );
+
+	foreach ( $cache as $pid => $entry ) {
+		if ( isset( $fresh[ $pid ] ) ) {
+			$sell   = caw_fox_sell_price( $download_id, $pid );
+			$reason = '';
+			if ( ! isset( $costs[ $pid ] ) ) {
+				$reason = 'out of stock at supplier';
+			} elseif ( $entry['cost'] > $sell * ( 1 - caw_fox_min_margin() ) ) {
+				$reason = sprintf( 'unprofitable: cost $%s vs price $%s', number_format( $entry['cost'], 2 ), number_format( $sell, 2 ) );
+			}
+			$cache[ $pid ]['ok']     = '' === $reason;
+			$cache[ $pid ]['reason'] = $reason;
 		}
 		$was = isset( $old[ $pid ] ) ? ! empty( $old[ $pid ]['ok'] ) : null;
 		if ( $was !== $cache[ $pid ]['ok'] ) {
@@ -219,7 +356,7 @@ function caw_fox_sync_all() {
 	}
 	update_option( 'caw_fox_last_sync', time(), false );
 	if ( $changes ) {
-		caw_fox_admin_alert( 'Foxreload availability changed', implode( "\n", $changes ) );
+		caw_fox_admin_alert( 'Foxreload prices / availability changed', implode( "\n", $changes ) );
 	}
 }
 add_action( 'caw_fox_sync_all', 'caw_fox_sync_all' );
@@ -1503,9 +1640,10 @@ function caw_fox_render_product_box( $post ) {
 	echo '<table class="widefat striped"><thead><tr><th>Option</th><th>Price</th><th>Foxreload product ID</th><th>Cost</th><th>Margin</th><th>Stock</th><th>Status</th></tr></thead><tbody>';
 	foreach ( $prices as $pid => $p ) {
 		$c    = caw_fox_cache( $post->ID, $pid );
-		$sell = (float) $p['amount'];
+		$sell = edd_has_variable_prices( $post->ID ) ? caw_fox_sell_price( $post->ID, $pid ) : (float) $p['amount'];
 		$cost = $c && ! empty( $c['cost'] ) ? (float) $c['cost'] : 0;
-		echo '<tr><td>' . esc_html( $p['name'] ) . '</td><td>$' . esc_html( number_format( $sell, 2 ) ) . '</td>';
+		$was  = (float) $p['amount'] > $sell ? '<del>$' . esc_html( number_format( (float) $p['amount'], 2 ) ) . '</del> ' : '';
+		echo '<tr><td>' . esc_html( $p['name'] ) . '</td><td>' . $was . '$' . esc_html( number_format( $sell, 2 ) ) . '</td>'; // phpcs:ignore WordPress.Security.EscapeOutput
 		echo '<td><input type="text" class="regular-text code" name="caw_fox_items[' . (int) $pid . ']" value="' . esc_attr( isset( $map['items'][ $pid ] ) ? $map['items'][ $pid ] : '' ) . '" placeholder="product_…"></td>';
 		echo '<td>' . ( $cost ? '$' . esc_html( number_format( $cost, 2 ) ) : '—' ) . '</td>';
 		echo '<td>' . ( $cost && $sell ? esc_html( round( ( 1 - $cost / $sell ) * 100 ) ) . '%' : '—' ) . '</td>';
@@ -1513,6 +1651,16 @@ function caw_fox_render_product_box( $post ) {
 		echo '<td>' . ( ! $c ? '—' : ( $c['ok'] ? '✅ on sale' : '⛔ ' . esc_html( $c['reason'] ) ) ) . ( $c && ! empty( $c['req'] ) ? '<br><small>asks for: ' . esc_html( implode( ', ', $c['req'] ) ) . '</small>' : '' ) . '</td></tr>';
 	}
 	echo '</tbody></table>';
+	$mk    = caw_fox_markup( $post->ID );
+	$pct   = function ( $name, $range, $i ) {
+		return '<input type="number" step="0.1" min="' . esc_attr( caw_fox_min_markup() ) . '" max="200" name="caw_fox_markup[' . $name . '][' . $i . ']" value="' . esc_attr( isset( $range[ $i ] ) ? $range[ $i ] : '' ) . '" style="width:70px">%';
+	};
+	echo '<p><strong>Automatic pricing</strong> — price = Foxreload cost + markup, rounded up to a shop price (x.x9 under $20, x.49/x.99 under $100, x.99 above). The cheapest option gets the first %, the dearest the second, options in between slide along the curve; use the same % twice for a flat markup. Prices update on save and hourly when they would move ' . esc_html( caw_fox_reprice_threshold() * 100 ) . '% or more. <em>While on, prices typed above are overwritten.</em> Leave blank for manual prices. Minimum ' . esc_html( caw_fox_min_markup() ) . '% (the margin guard).</p>';
+	if ( edd_has_variable_prices( $post->ID ) ) {
+		echo '<p>Regular price markup: ' . $pct( 'reg', $mk['reg'], 0 ) . ' → ' . $pct( 'reg', $mk['reg'], 1 ) . ' &nbsp; &nbsp; Sale price markup: ' . $pct( 'sale', $mk['sale'], 0 ) . ' → ' . $pct( 'sale', $mk['sale'], 1 ) . ' <small>(blank = no sale)</small></p>'; // phpcs:ignore WordPress.Security.EscapeOutput
+	} else {
+		echo '<p><em>Automatic pricing needs variable prices (price options).</em></p>';
+	}
 	$axes = isset( $map['axes'] ) ? $map['axes'] : array( '', '' );
 	echo '<p>Selector labels for "A – B" option names (e.g. Region / Amount): ';
 	echo '<input type="text" name="caw_fox_axes[0]" value="' . esc_attr( $axes[0] ) . '" placeholder="Region" style="width:120px"> ';
@@ -1538,7 +1686,23 @@ add_action( 'save_post_download', function ( $post_id ) {
 		return;
 	}
 	$axes = array_map( 'sanitize_text_field', array_slice( (array) ( isset( $_POST['caw_fox_axes'] ) ? wp_unslash( $_POST['caw_fox_axes'] ) : array() ), 0, 2 ) ); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput
-	update_post_meta( $post_id, '_caw_fox', array( 'items' => $items, 'axes' => $axes ) );
+	$markup = array();
+	$in     = isset( $_POST['caw_fox_markup'] ) ? (array) wp_unslash( $_POST['caw_fox_markup'] ) : array(); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput
+	foreach ( array( 'reg', 'sale' ) as $k ) {
+		$ends = isset( $in[ $k ] ) ? array_values( array_filter( array_map( 'trim', (array) $in[ $k ] ), 'is_numeric' ) ) : array();
+		if ( 1 === count( $ends ) ) {
+			$ends[] = $ends[0]; // one box filled = flat markup
+		}
+		if ( 2 === count( $ends ) ) {
+			$markup[ $k ] = array_map( function ( $v ) {
+				return min( 200, max( caw_fox_min_markup(), round( (float) $v, 1 ) ) );
+			}, array_slice( $ends, 0, 2 ) );
+		}
+	}
+	if ( empty( $markup['reg'] ) ) {
+		$markup = array(); // a sale markup alone means nothing without a regular one
+	}
+	update_post_meta( $post_id, '_caw_fox', array( 'items' => $items, 'axes' => $axes, 'markup' => $markup ) );
 	$guide = isset( $_POST['caw_fox_guide'] ) ? trim( wp_kses_post( wp_unslash( $_POST['caw_fox_guide'] ) ) ) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput
 	if ( $guide ) {
 		update_post_meta( $post_id, '_caw_fox_guide', $guide );
@@ -1548,7 +1712,7 @@ add_action( 'save_post_download', function ( $post_id ) {
 	// save_post_download fires before EDD saves the prices (save_post, 10) — sync after, or the margin check uses the old price.
 	add_action( 'save_post', function ( $id ) use ( $post_id ) {
 		if ( (int) $id === (int) $post_id ) {
-			caw_fox_sync_download( $post_id );
+			caw_fox_sync_download( $post_id, true );
 		}
 	}, 99 );
 }, 99 );
