@@ -1519,9 +1519,13 @@ add_filter( 'caw_price_model', function ( $model, $id ) {
 		return $model;
 	}
 	$bought = edd_get_price_option_name( $id, absint( $_GET['caw_renew'] ) ); // phpcs:ignore WordPress.Security.NonceVerification
-	$want   = str_replace( 'New card', 'Renewal', (string) $bought );
+	// Owner-typed names: ignore case, dash style and spacing ("New Card – Pro" ≈ "new card - pro").
+	$norm = function ( $s ) {
+		return preg_replace( '/\s+/u', ' ', preg_replace( '/\s*[-\x{2013}\x{2014}]\s*/u', ' - ', mb_strtolower( trim( (string) $s ) ) ) );
+	};
+	$want = str_replace( 'new card', 'renewal', $norm( $bought ) );
 	foreach ( edd_get_variable_prices( $id ) as $pid => $p ) {
-		if ( isset( $p['name'] ) && $p['name'] === $want ) {
+		if ( isset( $p['name'] ) && $norm( $p['name'] ) === $want ) {
 			$key = array_search( (int) $pid, $model['map'], true );
 			if ( false !== $key ) {
 				list( $model['default_plan'], $model['default_dur'] ) = explode( '|||', $key );
