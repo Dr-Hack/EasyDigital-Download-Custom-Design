@@ -228,10 +228,17 @@ function caw_mini_cart_refresh() {
 		'mayosis-theme',
 		'jQuery(function($){'
 		. 'if(typeof mayosis_custom_ajax==="undefined"){return;}'
-		. '$(document.body).on("edd_cart_item_added edd_cart_item_removed",function(){'
+		. 'function refresh(){'
 		. '$.get(mayosis_custom_ajax.ajaxurl,{action:"mayosis_custom_ajax",_wpnonce:mayosis_custom_ajax.nonce},function(html){'
 		. '$(".mayosis-mini-cart-widget").filter(function(){return !$(this).parents(".mayosis-mini-cart-widget").length;})'
-		. '.each(function(){$(this).replaceWith(html);});});});});'
+		. '.each(function(){$(this).replaceWith(html);});});}'
+		. '$(document.body).on("edd_cart_item_added edd_cart_item_removed",refresh);'
+		// Removing or changing quantity inside EDD's cart preview doesn't touch the
+		// theme's header count; its events carry the new cart.
+		. 'function sync(e){var d=e.detail&&e.detail.data;d=d&&(d.cart||d);'
+		. 'if(d&&d.item_count!==undefined){$(".edd-cart-quantity").text(d.item_count);}refresh();}'
+		. 'document.addEventListener("edd:cart-item-removed",sync);'
+		. 'document.addEventListener("edd:cart-quantity-updated",sync);});'
 	);
 }
 add_action( 'wp_enqueue_scripts', 'caw_mini_cart_refresh', 20 );
