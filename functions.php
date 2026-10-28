@@ -845,7 +845,110 @@ function caw_get_price_model( $id ) {
     $model['pidOff'] = $pidOff;
 
     // Lets a product rename its axes (Foxreload products: "Region" / "Amount").
-    return apply_filters( 'caw_price_model', $model, $id );
+    $model = apply_filters( 'caw_price_model', $model, $id );
+
+    // After the filters, so the Recharge preselect (default_pid) is already set.
+    return caw_vat_collapse( $model );
+}
+
+/* ---- VAT switch --------------------------------------------------------
+ * "Pro" + "Pro (incl. VAT)" or "No VAT" + "Incl. VAT" pairs show as one
+ * button plus a VAT switch instead of two buttons each. The EDD options stay
+ * separate (each VAT variant is its own supplier card); the switch only picks
+ * which of the pair is bought. Names match ignoring case, dashes and spacing.
+ */
+function caw_vat_split( $value ) {
+    $v = preg_replace( '/\s+/u', ' ', mb_strtolower( trim( (string) $value ) ) );
+    $v = preg_replace( '/\s*[-\x{2013}\x{2014}]\s*/u', '-', $v );
+    if ( preg_match( '/^(no|without|excl\.?|excluding|ex\.?)[ -]?vat$/', $v ) ) {
+        return array( '', false );
+    }
+    if ( preg_match( '/^(incl\.?|including|inc\.?|with|\+)[ -]?vat$/', $v ) ) {
+        return array( '', true );
+    }
+    // A separator before the VAT words, so "renovat" is not "re" + "no vat".
+    if ( preg_match( '/^(.+?)[ -]*[( -]\s*(incl\.?|including|inc\.?|with|\+)[ -]?vat\s*\)?$/', $v, $m ) ) {
+        return array( trim( $m[1] ), true );
+    }
+    if ( preg_match( '/^(.+?)[ -]*[( -]\s*(no|without|excl\.?|excluding|ex\.?)[ -]?vat\s*\)?$/', $v, $m ) ) {
+        return array( trim( $m[1] ), false );
+    }
+    return array( $v, false );
+}
+
+function caw_vat_collapse( $model ) {
+    if ( empty( $model['two_axis'] ) || empty( $model['map'] ) ) {
+        return $model;
+    }
+    $base   = array(); // collapsed key => no-VAT price id
+    $vat    = array(); // collapsed key => VAT price id
+    $shown  = array( 0 => array(), 1 => array() ); // normalised axis value => text shown on the button
+    $order  = array( 0 => array(), 1 => array() );
+    foreach ( $model['map'] as $key => $pid ) {
+        $kp   = explode( '|||', $key );
+        $kp[] = '';
+        $norm = array();
+        $is_vat = false;
+        foreach ( array( 0, 1 ) as $ax ) {
+            list( $n, $v ) = caw_vat_split( $kp[ $ax ] );
+            $is_vat = $is_vat || $v;
+            $norm[ $ax ] = $n;
+            if ( ! in_array( $n, $order[ $ax ], true ) ) {
+                $order[ $ax ][] = $n;
+            }
+            // Prefer the no-VAT spelling for the button; strip "No VAT"-style words otherwise.
+            if ( ! $v && ( ! isset( $shown[ $ax ][ $n ] ) || ! empty( $shown[ $ax ][ $n ][1] ) ) ) {
+                $shown[ $ax ][ $n ] = array( '' === $n ? '' : preg_replace( '/[ -]*[( -]\s*(no|without|excl\.?|excluding|ex\.?)[ -]?vat\s*\)?\s*$/iu', '', trim( $kp[ $ax ] ) ), false );
+            } elseif ( ! isset( $shown[ $ax ][ $n ] ) ) {
+                $shown[ $ax ][ $n ] = array( $n, true );
+            }
+        }
+        $ck = $norm[0] . '|||' . $norm[1];
+        if ( $is_vat ) {
+            if ( isset( $vat[ $ck ] ) ) { return $model; } // two VAT options for one button: leave as is
+            $vat[ $ck ] = (int) $pid;
+        } else {
+            if ( isset( $base[ $ck ] ) ) { return $model; }
+            $base[ $ck ] = (int) $pid;
+        }
+    }
+    // Every VAT option needs its no-VAT twin, or there is nothing to switch between.
+    if ( ! $vat || array_diff_key( $vat, $base ) ) {
+        return $model;
+    }
+
+    $label = function ( $ax, $n ) use ( $shown ) { return $shown[ $ax ][ $n ][0]; };
+    $map = array();
+    $vmap = array();
+    foreach ( $base as $ck => $pid ) {
+        $kp  = explode( '|||', $ck );
+        $key = $label( 0, $kp[0] ) . '|||' . $label( 1, $kp[1] );
+        $map[ $key ] = $pid;
+        if ( isset( $vat[ $ck ] ) ) {
+            $vmap[ $key ] = $vat[ $ck ];
+        }
+    }
+    $model['plans'] = array_values( array_unique( array_map( function ( $n ) use ( $label ) { return $label( 0, $n ); }, $order[0] ) ) );
+    $model['durs']  = array_values( array_unique( array_map( function ( $n ) use ( $label ) { return $label( 1, $n ); }, $order[1] ) ) );
+    $model['map']   = $map;
+
+    $def = (int) $model['default_pid'];
+    $key = array_search( $def, $map, true );
+    if ( false === $key ) {
+        $key = array_search( $def, $vmap, true );
+    }
+    if ( false === $key ) {
+        $key = array_key_first( $map );
+    }
+    list( $model['default_plan'], $model['default_dur'] ) = explode( '|||', $key );
+    $model['vat'] = array(
+        'map'   => $vmap,
+        'on'    => in_array( $def, $vmap, true ),
+        'title' => __( 'My country adds VAT / tax', 'mayosis' ),
+        'hint'  => __( 'Turn this on if the subscription price shows tax at checkout (EU, UK and others).', 'mayosis' ),
+        'tag'   => __( 'incl. VAT', 'mayosis' ),
+    );
+    return $model;
 }
 
 /* ---- Sale price (Counten "EDD Sale Counter Advanced" plugin) -------------

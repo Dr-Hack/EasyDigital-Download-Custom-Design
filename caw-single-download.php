@@ -139,6 +139,17 @@ while ( have_posts() ) :
                             </div>
                         <?php endif; ?>
 
+                        <?php if ( ! empty( $model['vat'] ) ) : // VAT twins of each option, picked by one switch ?>
+                            <label class="caw-vat<?php echo $model['vat']['on'] ? ' caw-on' : ''; ?>">
+                                <input type="checkbox" role="switch" id="caw-vat"<?php checked( $model['vat']['on'] ); ?>>
+                                <span class="caw-tog" aria-hidden="true"></span>
+                                <span class="caw-vtxt">
+                                    <span class="caw-vtitle"><?php echo esc_html( $model['vat']['title'] ); ?></span>
+                                    <span class="caw-vhint"><?php echo esc_html( $model['vat']['hint'] ); ?></span>
+                                </span>
+                            </label>
+                        <?php endif; ?>
+
                     <?php else : ?>
                         <!-- Single-axis option list (fallback) -->
                         <div class="caw-selblock">
@@ -345,6 +356,8 @@ while ( have_posts() ) :
         'hideMissing' => ! empty( $hide_missing ),
         'defaultPid' => isset( $model['default_pid'] ) ? (int) $model['default_pid'] : -1,
         'map'        => isset( $model['map'] ) ? $model['map'] : new stdClass(),
+        'vatMap'     => ! empty( $model['vat']['map'] ) ? $model['vat']['map'] : null,
+        'vatTag'     => ! empty( $model['vat'] ) ? $model['vat']['tag'] : '',
         'pidPrice'   => isset( $model['pidPrice'] ) ? $model['pidPrice'] : new stdClass(),
         'pidWas'     => ! empty( $model['pidWas'] ) ? $model['pidWas'] : new stdClass(),
         'pidOff'     => ! empty( $model['pidOff'] ) ? $model['pidOff'] : new stdClass(),
@@ -451,13 +464,20 @@ while ( have_posts() ) :
         });
 
         // --- Two-axis selector ---
-        var state = { plan: null, dur: null };
+        var vatBox = box.querySelector('#caw-vat');
+        var state = { plan: null, dur: null, vat: !!(vatBox && vatBox.checked) };
+        // With the VAT switch on, a combo means its "(incl. VAT)" twin when it has one.
+        function pidFor(plan, dur) {
+            var k = plan + '|||' + dur;
+            if (state.vat && DATA.vatMap && DATA.vatMap[k] !== undefined) return DATA.vatMap[k];
+            return DATA.map[k];
+        }
         function curPid() {
-            return DATA.map[state.plan + '|||' + state.dur];
+            return pidFor(state.plan, state.dur);
         }
         // A plan/duration combo is selectable only if it exists AND isn't sold out.
         function comboAvail(plan, dur) {
-            var pid = DATA.map[plan + '|||' + dur];
+            var pid = pidFor(plan, dur);
             if (pid === undefined) return false;
             var s = stockFor(pid);
             return !(s && s.tracked && s.soldOut);
@@ -483,12 +503,29 @@ while ( have_posts() ) :
                     });
                 }
             }
+            var vatOn = false;
+            if (vatBox) {
+                // An option with no VAT twin: switch off and locked.
+                var has = DATA.vatMap[state.plan + '|||' + state.dur] !== undefined;
+                vatBox.disabled = !has;
+                vatOn = has && state.vat;
+                vatBox.checked = vatOn;
+                vatBox.closest('.caw-vat').classList.toggle('caw-on', vatOn);
+                vatBox.closest('.caw-vat').classList.toggle('caw-disabled', !has);
+            }
             var pid = curPid();
             if (pid !== undefined) {
                 setPid(pid);
-                if (perEl) perEl.textContent = state.dur ? '/ ' + state.dur : '';
+                var per = [state.dur, vatOn ? DATA.vatTag : ''].filter(Boolean).join(' · ');
+                if (perEl) perEl.textContent = per ? '/ ' + per : '';
             }
             syncRadios();
+        }
+        if (vatBox) {
+            vatBox.addEventListener('change', function () {
+                state.vat = vatBox.checked;
+                refreshTwoAxis();
+            });
         }
 
         if (DATA.variable && DATA.twoAxis) {

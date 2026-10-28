@@ -708,6 +708,29 @@ body.sp-night-mode-on .caw-sales-badge { color: #fbbf24; background: rgba(245, 1
 .caw-dur.caw-active { border-color: var(--caw-accent2); background: rgba(43,138,230,.12); box-shadow: 0 0 0 1px var(--caw-accent2) inset; }
 .caw-dur.caw-disabled { opacity: .35; cursor: not-allowed; }
 
+/* VAT switch: picks the "(incl. VAT)" twin of the selected option */
+.caw-vat {
+    display: flex; gap: 12px; align-items: flex-start; position: relative; margin: 0 0 18px;
+    border: 1px dashed var(--caw-line); border-radius: 12px; padding: 12px 14px; cursor: pointer;
+    font-weight: 400; transition: border-color .15s, background-color .15s;
+}
+.caw-vat:hover { border-color: var(--caw-accent2); }
+.caw-vat.caw-on { border-style: solid; border-color: var(--caw-accent2); background: rgba(43,138,230,.12); }
+.caw-vat.caw-disabled { opacity: .45; cursor: not-allowed; }
+.caw-vat.caw-disabled:hover { border-color: var(--caw-line); }
+.caw-vat input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; }
+.caw-vat:has(input:focus-visible) { outline: 2px solid var(--caw-accent2); outline-offset: 2px; }
+.caw-tog { flex: none; width: 40px; height: 22px; border-radius: 999px; background: var(--caw-line); position: relative; margin-top: 1px; transition: background-color .15s; }
+.caw-tog::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: transform .15s; }
+body.sp-night-mode-on .caw-tog { background: #3a4b72; }
+body.sp-night-mode-on .caw-vhint { color: #9fb0d0 !important; }
+.caw-vat.caw-on .caw-tog { background: var(--caw-accent2) !important; }
+.caw-vat.caw-on .caw-tog::after { transform: translateX(18px); }
+.caw-vtxt { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.caw-vtitle { font-weight: 600; font-size: 14px; color: var(--caw-txt); }
+.caw-vhint { font-size: 13px; line-height: 1.45; color: var(--caw-muted); }
+@media (prefers-reduced-motion: reduce) { .caw-vat, .caw-tog, .caw-tog::after { transition: none; } }
+
 .caw-opts { display: grid; gap: 8px; }
 .caw-opt {
     display: flex; justify-content: space-between; gap: 12px; align-items: center;
