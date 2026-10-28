@@ -209,6 +209,32 @@ function caw_verified_popup_registration() {
 }
 
 add_action( 'wp_enqueue_scripts', 'caw_dedupe_auth_modal', 20 );
+
+/**
+ * Refresh the header slide-out cart once EDD has actually added the item.
+ *
+ * The parent theme reloads it on a fixed 1s timer after the click. The add
+ * often takes longer (first visit, Cloudflare), so the theme fetches the still
+ * empty cart, EDD's script then hides the "cart is empty" line, and the panel
+ * opens blank under "Cart (1)". EDD fires edd_cart_item_added on success.
+ * The theme's .load() nests a widget inside the widget, so replace the
+ * outermost one instead.
+ */
+function caw_mini_cart_refresh() {
+	if ( ! wp_script_is( 'mayosis-theme', 'enqueued' ) ) {
+		return;
+	}
+	wp_add_inline_script(
+		'mayosis-theme',
+		'jQuery(function($){'
+		. 'if(typeof mayosis_custom_ajax==="undefined"){return;}'
+		. '$(document.body).on("edd_cart_item_added edd_cart_item_removed",function(){'
+		. '$.get(mayosis_custom_ajax.ajaxurl,{action:"mayosis_custom_ajax",_wpnonce:mayosis_custom_ajax.nonce},function(html){'
+		. '$(".mayosis-mini-cart-widget").filter(function(){return !$(this).parents(".mayosis-mini-cart-widget").length;})'
+		. '.each(function(){$(this).replaceWith(html);});});});});'
+	);
+}
+add_action( 'wp_enqueue_scripts', 'caw_mini_cart_refresh', 20 );
 /**
  * Keep exactly one auth popup, and move it somewhere it can actually be seen.
  *
