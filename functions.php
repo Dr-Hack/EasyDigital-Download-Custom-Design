@@ -235,6 +235,49 @@ function caw_mini_cart_refresh() {
 	);
 }
 add_action( 'wp_enqueue_scripts', 'caw_mini_cart_refresh', 20 );
+
+/**
+ * One cart: the header and mobile-bar cart buttons open EDD's cart preview
+ * (shows the chosen option, quantity, recommendations) instead of the theme's
+ * panel. EDD doesn't load its preview on checkout or on an empty-cart page with
+ * no buy button; there the theme's panel still opens. Capture phase, so the
+ * theme's own click handler on the button never runs when EDD's cart opens.
+ */
+function caw_one_cart() {
+	if ( ! wp_script_is( 'mayosis-theme', 'enqueued' ) ) {
+		return;
+	}
+	wp_add_inline_script(
+		'mayosis-theme',
+		'document.addEventListener("click",function(e){'
+		. 'var b=e.target.closest&&e.target.closest(".msv-dsk-cart-button,.msv-fixed-cart-btn");'
+		. 'if(!b||!window.eddSlideoutCart||typeof window.eddSlideoutCart.open!=="function"){return;}'
+		. 'e.preventDefault();e.stopPropagation();window.eddSlideoutCart.open();},true);'
+	);
+}
+add_action( 'wp_enqueue_scripts', 'caw_one_cart', 20 );
+
+/**
+ * EDD's cart preview puts product names in as plain text, so the entities in
+ * titles show literally ("Go, Plus &#038; Pro"). Decode them; the preview
+ * script only ever assigns these with textContent.
+ */
+function caw_cart_preview_names( $data ) {
+	$dec = function ( $s ) {
+		return is_string( $s ) ? html_entity_decode( $s, ENT_QUOTES | ENT_HTML5, 'UTF-8' ) : $s;
+	};
+	foreach ( array( 'items' => 'name', 'recommendations' => 'title' ) as $list => $key ) {
+		if ( ! empty( $data[ $list ] ) && is_array( $data[ $list ] ) ) {
+			foreach ( $data[ $list ] as $i => $row ) {
+				if ( isset( $row[ $key ] ) ) {
+					$data[ $list ][ $i ][ $key ] = $dec( $row[ $key ] );
+				}
+			}
+		}
+	}
+	return $data;
+}
+add_filter( 'edd_cart_preview_data', 'caw_cart_preview_names', 99 );
 /**
  * Keep exactly one auth popup, and move it somewhere it can actually be seen.
  *
