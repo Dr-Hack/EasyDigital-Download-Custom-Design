@@ -144,6 +144,33 @@ function caw_fox_is_card_type( $type ) {
 	return in_array( $type, array( 'banking_card', 'banking_card_topup' ), true );
 }
 
+/** Delivery types this file knows how to hand over; anything new stays off sale until it is added. */
+function caw_fox_supported_type( $type ) {
+	return in_array( $type, array( 'code', 'direct_topup', 'banking_card', 'banking_card_topup' ), true );
+}
+
+/** Activated straight on the buyer's account (Telegram Premium, game top-ups) rather than handed over as a code. */
+function caw_fox_is_direct( $download_id, $price_id ) {
+	$c = caw_fox_cache( $download_id, $price_id );
+	return $c && ( ! empty( $c['svc'] ) || ( isset( $c['type'] ) && 'direct_topup' === $c['type'] ) );
+}
+
+/** Mapping box: how an option reaches the buyer, in the owner's words. */
+function caw_fox_delivery_label( $c ) {
+	$type = isset( $c['type'] ) ? $c['type'] : 'code';
+	if ( caw_fox_is_card_type( $type ) ) {
+		$out = 'banking_card' === $type ? 'Virtual card' : 'Card top-up';
+	} elseif ( ! empty( $c['svc'] ) || 'direct_topup' === $type ) {
+		$out = 'Straight to buyer\'s account';
+	} elseif ( 'code' === $type ) {
+		$out = 'Code (emailed)';
+	} else {
+		$out = $type . ' (not supported yet)';
+	}
+	$ask = array_diff( isset( $c['req'] ) ? (array) $c['req'] : array(), array( 'card_id' ) );
+	return $out . ( $ask ? ' — asks for ' . implode( ', ', array_map( 'caw_fox_field_label', $ask ) ) : '' );
+}
+
 /** Buyable right now: in stock at the supplier and still profitable at the last sync. */
 function caw_fox_available( $download_id, $price_id ) {
 	$c = caw_fox_cache( $download_id, $price_id );
@@ -300,6 +327,7 @@ function caw_fox_sync_download( $download_id, $exact = false ) {
 				'name'   => isset( $p['name'] ) ? (string) $p['name'] : '',
 				'guide'  => isset( $p['userGuide'] ) ? (string) $p['userGuide'] : '',
 				'type'   => isset( $p['deliveryType'] ) ? (string) $p['deliveryType'] : 'code',
+				'svc'    => ! empty( $p['isService'] ),
 				'at'     => time(),
 			);
 		}
@@ -317,7 +345,9 @@ function caw_fox_sync_download( $download_id, $exact = false ) {
 		if ( isset( $fresh[ $pid ] ) ) {
 			$sell   = caw_fox_sell_price( $download_id, $pid );
 			$reason = '';
-			if ( ! isset( $costs[ $pid ] ) ) {
+			if ( ! caw_fox_supported_type( $entry['type'] ) ) {
+				$reason = 'delivery type "' . $entry['type'] . '" is not supported yet';
+			} elseif ( ! isset( $costs[ $pid ] ) ) {
 				$reason = 'out of stock at supplier';
 			} elseif ( $entry['cost'] > $sell * ( 1 - caw_fox_min_margin() ) ) {
 				$reason = sprintf( 'unprofitable: cost $%s vs price $%s', number_format( $entry['cost'], 2 ), number_format( $sell, 2 ) );
@@ -519,6 +549,16 @@ function caw_fox_field_label( $field ) {
 	return isset( $labels[ $field ] ) ? $labels[ $field ] : ucwords( str_replace( '_', ' ', $field ) );
 }
 
+/** Tidy what the buyer typed: "@name" or a t.me / profile link becomes the bare username. */
+function caw_fox_clean_note( $field, $v ) {
+	$v = trim( sanitize_text_field( $v ) );
+	if ( 'username' === $field ) {
+		$v = preg_replace( '#^(?:https?://)?(?:www\.)?(?:t\.me|telegram\.me|[a-z0-9.-]+\.[a-z]{2,})/#i', '', $v );
+		$v = ltrim( trim( $v, " /\t" ), '@' );
+	}
+	return $v;
+}
+
 /** Numeric game IDs are the common typo source — insist on digits for them. */
 function caw_fox_field_is_numeric( $field ) {
 	return in_array( $field, array( 'character_id', 'account_id', 'user_id', 'server_id' ), true );
@@ -527,8 +567,15 @@ function caw_fox_field_is_numeric( $field ) {
 add_action( 'edd_purchase_form_user_info_fields', function () {
 	$rows     = '';
 	$game_ids = false;
+	$hinted   = array();
 	foreach ( caw_fox_cart_lines() as $key => $line ) {
 		$req = ! empty( $line['cache']['req'] ) ? $line['cache']['req'] : array();
+		// The product's own "Checkout note" (where to find the ID / username), once per product.
+		$hint = $req && array_diff( $req, array( 'card_id' ) ) ? trim( (string) get_post_meta( $line['item']['id'], '_caw_fox_hint', true ) ) : '';
+		if ( '' !== $hint && empty( $hinted[ $line['item']['id'] ] ) ) {
+			$hinted[ $line['item']['id'] ] = true;
+			$rows .= '<p class="caw-fox-hint">' . wp_kses( $hint, array( 'strong' => array(), 'em' => array(), 'b' => array(), 'a' => array( 'href' => array(), 'target' => array(), 'rel' => array() ) ) ) . '</p>';
+		}
 		foreach ( $req as $field ) {
 			$name  = 'caw_fox_note[' . (int) $key . '][' . sanitize_key( $field ) . ']';
 			$id    = 'caw-fox-' . (int) $key . '-' . sanitize_key( $field );
@@ -568,7 +615,7 @@ add_action( 'edd_purchase_form_user_info_fields', function () {
 	}
 	echo '<div class="caw-fox-fields">';
 	echo '<p class="caw-fox-fields-intro">' . ( $game_ids
-		? esc_html__( 'Your order is delivered to this ID, so please double-check it. In PUBG Mobile, tap your avatar (top-left) to copy your numeric Player ID.', 'mayosis' )
+		? esc_html__( 'Your order is delivered to the account below, so please double-check it.', 'mayosis' )
 		: esc_html__( 'Choose the card to top up. The money is added to it a minute or two after your payment confirms.', 'mayosis' ) ) . '</p>';
 	echo $rows; // phpcs:ignore WordPress.Security.EscapeOutput -- escaped above
 	echo '</div>';
@@ -593,7 +640,7 @@ add_action( 'edd_checkout_error_checks', function ( $valid_data, $post ) {
 			edd_set_error( 'caw_fox_qty_' . $key, sprintf( __( 'You can buy at most %1$d of %2$s per order.', 'mayosis' ), $line['cache']['max'], $title ) );
 		}
 		foreach ( (array) $line['cache']['req'] as $field ) {
-			$v = isset( $notes[ $key ][ $field ] ) ? trim( sanitize_text_field( wp_unslash( $notes[ $key ][ $field ] ) ) ) : '';
+			$v = isset( $notes[ $key ][ $field ] ) ? caw_fox_clean_note( $field, wp_unslash( $notes[ $key ][ $field ] ) ) : '';
 			if ( 'card_id' === $field ) {
 				if ( ! isset( caw_fox_user_cards( get_current_user_id(), $line['item']['id'] )[ $v ] ) ) {
 					edd_set_error( 'caw_fox_note_' . $key . '_card', sprintf( __( 'Please choose which of your cards to top up with %s. Log in first if you are not logged in.', 'mayosis' ), $title ) );
@@ -604,6 +651,8 @@ add_action( 'edd_checkout_error_checks', function ( $valid_data, $post ) {
 				edd_set_error( 'caw_fox_note_' . $key . '_' . $field, sprintf( __( 'Please enter your %1$s for %2$s.', 'mayosis' ), caw_fox_field_label( $field ), $title ) );
 			} elseif ( caw_fox_field_is_numeric( $field ) && ! preg_match( '/^\d{5,20}$/', $v ) ) {
 				edd_set_error( 'caw_fox_note_' . $key . '_' . $field, sprintf( __( 'The %1$s for %2$s should be numbers only.', 'mayosis' ), caw_fox_field_label( $field ), $title ) );
+			} elseif ( 'username' === $field && ! preg_match( '/^[A-Za-z0-9_.]{3,64}$/', $v ) ) {
+				edd_set_error( 'caw_fox_note_' . $key . '_' . $field, sprintf( __( 'The Username for %s should be a single word (letters, numbers and _ only), without spaces.', 'mayosis' ), $title ) );
 			}
 		}
 	}
@@ -622,7 +671,7 @@ add_action( 'edd_built_order', function ( $order_id, $order_data ) {
 		}
 		$clean = array();
 		foreach ( $notes[ $item->cart_index ] as $field => $v ) {
-			$clean[ sanitize_key( $field ) ] = trim( sanitize_text_field( wp_unslash( $v ) ) );
+			$clean[ sanitize_key( $field ) ] = caw_fox_clean_note( sanitize_key( $field ), wp_unslash( $v ) );
 		}
 		edd_update_order_item_meta( $item->id, '_caw_fox_note', $clean );
 	}
@@ -836,7 +885,8 @@ function caw_fox_apply_remote( $order, $item, $fo ) {
 		if ( ! $codes && ! $is_service ) {
 			return caw_fox_fail( $order, $item, 'completed without any codes' );
 		}
-		caw_fox_set( $item->id, '_caw_fox_codes', caw_fox_encrypt( wp_json_encode( $is_service ? array() : $codes ) ) );
+		// A service may still return a code (Telegram: a backup to send the supplier's bot) — keep it.
+		caw_fox_set( $item->id, '_caw_fox_codes', caw_fox_encrypt( wp_json_encode( $codes ) ) );
 		caw_fox_set( $item->id, '_caw_fox_service', $is_service ? 1 : 0 );
 		if ( ! empty( $fi['externalId'] ) ) {
 			caw_fox_set( $item->id, '_caw_fox_external_id', sanitize_text_field( $fi['externalId'] ) ); // eSIM ICCID
@@ -974,7 +1024,14 @@ function caw_fox_items_html( $order, $for_email = false ) {
 			if ( caw_fox_item_card( $item->id ) ) {
 				$html .= caw_fox_card_html( $item, $for_email );
 			} elseif ( caw_fox_meta( $item->id, '_caw_fox_service' ) ) {
-				$html .= '<p>' . esc_html__( 'Delivered directly to the account above.', 'mayosis' ) . '</p>';
+				$html .= '<p class="caw-fox-direct"' . $st( 'margin:0 0 8px;font-size:15px' ) . '>&#9989; ' . esc_html__( 'Activated directly on the account above. Nothing to redeem.', 'mayosis' ) . '</p>';
+				$refs  = caw_fox_codes( $item->id );
+				if ( $refs ) {
+					$html .= '<p' . $st( 'margin:0 0 4px;font-size:13px;color:#5a6b88' ) . '>' . esc_html( _n( 'Reference code (keep it in case you contact support):', 'Reference codes (keep them in case you contact support):', count( $refs ), 'mayosis' ) ) . '</p>';
+					foreach ( $refs as $ref ) {
+						$html .= '<p' . $st( 'margin:0 0 4px' ) . '><code' . $st( 'font-family:Consolas,Menlo,monospace;font-size:14px;word-break:break-all' ) . '>' . esc_html( $ref ) . '</code></p>';
+					}
+				}
 			} else {
 				$prefix = caw_fox_is_mock() ? '[TEST — not a real code] ' : '';
 				$codes  = caw_fox_codes( $item->id );
@@ -996,7 +1053,7 @@ function caw_fox_items_html( $order, $for_email = false ) {
 			}
 			$guide = caw_fox_guide( $item );
 			if ( $guide ) {
-				$title = caw_fox_item_card( $item->id ) ? esc_html__( 'How to use your card', 'mayosis' ) : esc_html__( 'How to redeem', 'mayosis' );
+				$title = caw_fox_item_card( $item->id ) ? esc_html__( 'How to use your card', 'mayosis' ) : ( caw_fox_meta( $item->id, '_caw_fox_service' ) ? esc_html__( 'Good to know', 'mayosis' ) : esc_html__( 'How to redeem', 'mayosis' ) );
 				$html .= $for_email
 					? '<div' . $st( 'margin-top:16px;padding-top:12px;border-top:1px solid #e3e8f0;font-size:14px;line-height:1.6;overflow-wrap:anywhere;word-break:break-word' ) . '><p style="margin:0 0 6px;font-size:16px;font-weight:bold">' . $title . '</p>' . $guide . '</div>'
 					: '<details class="caw-fox-guide" open data-caw-collapse><summary>' . $title . '</summary><div class="caw-fox-guide-body">' . $guide . '</div></details>';
@@ -1007,7 +1064,9 @@ function caw_fox_items_html( $order, $for_email = false ) {
 			$html .= '<p>' . esc_html__( 'We could not deliver this automatically. Our team has been notified and will send it to you or refund you shortly.', 'mayosis' ) . '</p>';
 		} else {
 			$pending = true;
-			$html   .= '<p class="caw-fox-wait"><span class="caw-fox-spinner" aria-hidden="true"></span>' . esc_html__( 'Preparing your code… this usually takes under a minute.', 'mayosis' ) . '</p>';
+			$html   .= '<p class="caw-fox-wait"><span class="caw-fox-spinner" aria-hidden="true"></span>' . esc_html( caw_fox_is_direct( $item->product_id, $item->price_id )
+				? __( 'Activating on your account… this usually takes a few minutes.', 'mayosis' )
+				: __( 'Preparing your code… this usually takes under a minute.', 'mayosis' ) ) . '</p>';
 		}
 		$html .= '</div>';
 	}
@@ -1035,7 +1094,10 @@ function caw_fox_send_codes_email( $order ) {
 	$is_card = (bool) array_filter( array_map( function ( $item ) {
 		return caw_fox_item_card( $item->id );
 	}, $fresh ) );
-	$subject = ( caw_fox_is_mock() ? '[TEST] ' : '' ) . sprintf( $is_card ? __( 'Your card for order #%s is ready', 'mayosis' ) : __( 'Your code for order #%s is ready', 'mayosis' ), $order->get_number() );
+	$all_direct = ! array_filter( $fresh, function ( $item ) {
+		return ! caw_fox_meta( $item->id, '_caw_fox_service' );
+	} );
+	$subject = ( caw_fox_is_mock() ? '[TEST] ' : '' ) . sprintf( $is_card ? __( 'Your card for order #%s is ready', 'mayosis' ) : ( $all_direct ? __( 'Your order #%s has been activated', 'mayosis' ) : __( 'Your code for order #%s is ready', 'mayosis' ) ), $order->get_number() );
 	EDD()->emails->__set( 'heading', __( 'Your order is ready', 'mayosis' ) );
 	if ( EDD()->emails->send( $order->email, $subject, $msg ) ) {
 		foreach ( $fresh as $item ) {
@@ -1060,6 +1122,8 @@ function caw_fox_delivery_intro( $order_id ) {
 			$kinds['files'] = true;
 		} elseif ( caw_fox_is_card_type( caw_fox_type( $item->product_id, $item->price_id ) ) ) {
 			$kinds['card'] = true;
+		} elseif ( caw_fox_is_direct( $item->product_id, $item->price_id ) ) {
+			$kinds['direct'] = true;
 		} else {
 			$kinds['code'] = true;
 		}
@@ -1072,6 +1136,9 @@ function caw_fox_delivery_intro( $order_id ) {
 	}
 	if ( isset( $kinds['code'] ) ) {
 		$lines[] = sprintf( __( 'Your code will be emailed to you separately within a few minutes. It is also shown on your %1$sorder page%2$s, with the steps to redeem it.', 'mayosis' ), $page, '</a>' );
+	}
+	if ( isset( $kinds['direct'] ) ) {
+		$lines[] = sprintf( __( 'Your purchase is activated directly on the account you entered at checkout, usually within a few minutes. We will email you when it is done, and you can follow it on your %1$sorder page%2$s.', 'mayosis' ), $page, '</a>' );
 	}
 	if ( isset( $kinds['files'] ) ) {
 		$lines[] = __( 'Please click on the link(s) below to download your instructions / files:', 'mayosis' );
@@ -1689,7 +1756,7 @@ function caw_fox_render_product_box( $post ) {
 	$prices = edd_has_variable_prices( $post->ID ) ? edd_get_variable_prices( $post->ID ) : array( 0 => array( 'name' => 'Price', 'amount' => edd_get_download_price( $post->ID ) ) );
 	wp_nonce_field( 'caw_fox_product', 'caw_fox_nonce' );
 	echo '<p>Map each price option to a Foxreload product ID (<code>product_…</code>) to deliver it automatically. Leave blank for manual delivery. Stock and cost refresh hourly and on save. Mode: <strong>' . ( caw_fox_is_mock() ? 'MOCK (test codes)' : 'LIVE' ) . '</strong>.</p>';
-	echo '<table class="widefat striped"><thead><tr><th>Option</th><th>Price</th><th>Foxreload product ID</th><th>Cost</th><th>Margin</th><th>Stock</th><th>Status</th></tr></thead><tbody>';
+	echo '<table class="widefat striped"><thead><tr><th>Option</th><th>Price</th><th>Foxreload product ID</th><th>Cost</th><th>Margin</th><th>Stock</th><th>Delivery</th><th>Status</th></tr></thead><tbody>';
 	foreach ( $prices as $pid => $p ) {
 		$c    = caw_fox_cache( $post->ID, $pid );
 		$sell = edd_has_variable_prices( $post->ID ) ? caw_fox_sell_price( $post->ID, $pid ) : (float) $p['amount'];
@@ -1700,7 +1767,8 @@ function caw_fox_render_product_box( $post ) {
 		echo '<td>' . ( $cost ? '$' . esc_html( number_format( $cost, 2 ) ) : '—' ) . '</td>';
 		echo '<td>' . ( $cost && $sell ? esc_html( round( ( 1 - $cost / $sell ) * 100 ) ) . '%' : '—' ) . '</td>';
 		echo '<td>' . ( $c && isset( $c['qty'] ) ? esc_html( number_format( $c['qty'] ) ) : '—' ) . '</td>';
-		echo '<td>' . ( ! $c ? '—' : ( $c['ok'] ? '✅ on sale' : '⛔ ' . esc_html( $c['reason'] ) ) ) . ( $c && ! empty( $c['req'] ) ? '<br><small>asks for: ' . esc_html( implode( ', ', $c['req'] ) ) . '</small>' : '' ) . '</td></tr>';
+		echo '<td>' . ( $c && isset( $c['type'] ) ? esc_html( caw_fox_delivery_label( $c ) ) : '—' ) . '</td>';
+		echo '<td>' . ( ! $c ? '—' : ( $c['ok'] ? '✅ on sale' : '⛔ ' . esc_html( $c['reason'] ) ) ) . '</td></tr>';
 	}
 	echo '</tbody></table>';
 	$mk    = caw_fox_markup( $post->ID );
@@ -1717,6 +1785,8 @@ function caw_fox_render_product_box( $post ) {
 	echo '<p>Selector labels for "A – B" option names (e.g. Region / Amount): ';
 	echo '<input type="text" name="caw_fox_axes[0]" value="' . esc_attr( $axes[0] ) . '" placeholder="Region" style="width:120px"> ';
 	echo '<input type="text" name="caw_fox_axes[1]" value="' . esc_attr( isset( $axes[1] ) ? $axes[1] : '' ) . '" placeholder="Amount" style="width:120px"></p>';
+	echo '<p><strong>Checkout note</strong> — shown above the fields this product asks for at checkout (see the Delivery column), e.g. where to find the Player ID or which username to enter. Leave blank for a general line.</p>';
+	echo '<textarea name="caw_fox_hint" rows="2" class="large-text">' . esc_textarea( (string) get_post_meta( $post->ID, '_caw_fox_hint', true ) ) . '</textarea>';
 	echo '<p><strong>How to redeem</strong> — shown under the code on the receipt and in the email (HTML allowed). Leave blank to use the supplier\'s guide.</p>';
 	echo '<textarea name="caw_fox_guide" rows="8" class="large-text code">' . esc_textarea( (string) get_post_meta( $post->ID, '_caw_fox_guide', true ) ) . '</textarea>';
 }
@@ -1760,6 +1830,12 @@ add_action( 'save_post_download', function ( $post_id ) {
 		update_post_meta( $post_id, '_caw_fox_guide', $guide );
 	} else {
 		delete_post_meta( $post_id, '_caw_fox_guide' );
+	}
+	$hint = isset( $_POST['caw_fox_hint'] ) ? trim( wp_kses_post( wp_unslash( $_POST['caw_fox_hint'] ) ) ) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput
+	if ( $hint ) {
+		update_post_meta( $post_id, '_caw_fox_hint', $hint );
+	} else {
+		delete_post_meta( $post_id, '_caw_fox_hint' );
 	}
 	// save_post_download fires before EDD saves the prices (save_post, 10) — sync after, or the margin check uses the old price.
 	add_action( 'save_post', function ( $id ) use ( $post_id ) {

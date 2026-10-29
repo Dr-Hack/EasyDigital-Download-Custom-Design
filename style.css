@@ -2391,6 +2391,7 @@ body.sp-night-mode-on .caw-fox-receipt {
     background: var(--caw-fox-card);
 }
 .caw-fox-fields-intro { margin: 0 0 10px; font-size: 14px; color: var(--caw-fox-muted); }
+.caw-fox-hint { margin: 0 0 10px; padding: 10px 12px; font-size: 14px; border-left: 3px solid var(--caw-accent, #1e73be); background: rgba(30, 115, 190, .07); border-radius: 4px; }
 .caw-fox-field:last-child { margin-bottom: 0; }
 
 .caw-fox-receipt { margin: 28px 0; }
