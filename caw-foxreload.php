@@ -336,6 +336,8 @@ function caw_fox_sync_download( $download_id, $exact = false ) {
 		}
 	}
 	update_post_meta( $download_id, '_caw_fox_cache', $cache );
+	update_post_meta( $download_id, '_caw_fox_synced', time() );
+	update_option( 'caw_fox_last_sync', time(), false );
 	return $changes;
 }
 
@@ -349,20 +351,50 @@ function caw_fox_mapped_downloads() {
 	) );
 }
 
+/** "Sync now" on the Tools page: every mapped product in one request (admin requests get the time). */
 function caw_fox_sync_all() {
+	@set_time_limit( 300 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors
 	$changes = array();
 	foreach ( caw_fox_mapped_downloads() as $id ) {
 		$changes = array_merge( $changes, caw_fox_sync_download( $id ) );
 	}
-	update_option( 'caw_fox_last_sync', time(), false );
 	if ( $changes ) {
 		caw_fox_admin_alert( 'Foxreload prices / availability changed', implode( "\n", $changes ) );
 	}
 }
-add_action( 'caw_fox_sync_all', 'caw_fox_sync_all' );
+
+/**
+ * Background sync, every 10 minutes: refresh the products not synced for an hour, stalest first,
+ * stopping after ~20s. One run over every product (~0.7s per option, 60+ options) outlived the
+ * host's limit for a cron request and never finished; this keeps each run short.
+ */
+function caw_fox_sync_due() {
+	@set_time_limit( 120 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors
+	$start = microtime( true );
+	$due   = array();
+	foreach ( caw_fox_mapped_downloads() as $id ) {
+		$at = (int) get_post_meta( $id, '_caw_fox_synced', true );
+		if ( time() - $at >= 55 * MINUTE_IN_SECONDS ) {
+			$due[ $id ] = $at;
+		}
+	}
+	asort( $due );
+	$changes = array();
+	foreach ( array_keys( $due ) as $id ) {
+		if ( microtime( true ) - $start > 20 ) {
+			break; // the rest waits for the next run
+		}
+		$changes = array_merge( $changes, caw_fox_sync_download( $id ) );
+	}
+	if ( $changes ) {
+		caw_fox_admin_alert( 'Foxreload prices / availability changed', implode( "\n", $changes ) );
+	}
+}
+add_action( 'caw_fox_sync_due', 'caw_fox_sync_due' );
 
 add_filter( 'cron_schedules', function ( $s ) {
 	$s['caw_five_minutes'] = array( 'interval' => 300, 'display' => 'Every 5 minutes' );
+	$s['caw_ten_minutes']  = array( 'interval' => 600, 'display' => 'Every 10 minutes' );
 	return $s;
 } );
 
@@ -370,8 +402,11 @@ add_action( 'init', function () {
 	if ( ! caw_fox_enabled() ) {
 		return;
 	}
-	if ( ! wp_next_scheduled( 'caw_fox_sync_all' ) ) {
-		wp_schedule_event( time() + 60, 'hourly', 'caw_fox_sync_all' );
+	if ( wp_next_scheduled( 'caw_fox_sync_all' ) ) {
+		wp_clear_scheduled_hook( 'caw_fox_sync_all' ); // the old hourly all-in-one run
+	}
+	if ( ! wp_next_scheduled( 'caw_fox_sync_due' ) ) {
+		wp_schedule_event( time() + 60, 'caw_ten_minutes', 'caw_fox_sync_due' );
 	}
 	if ( ! wp_next_scheduled( 'caw_fox_reconcile' ) ) {
 		wp_schedule_event( time() + 120, 'caw_five_minutes', 'caw_fox_reconcile' );
@@ -1885,7 +1920,9 @@ function caw_fox_render_tools_page() {
 	echo '<tr><th>Webhook</th><td>' . ( defined( 'CAW_FOXRELOAD_WEBHOOK_SECRET' ) ? 'secret configured' : 'no secret in wp-config (polling only)' ) . '; registered: ' . esc_html( (string) count( (array) ( isset( $hooks['data']['items'] ) ? $hooks['data']['items'] : $hooks['data'] ) ) ) . '</td></tr></table>';
 	echo '<h2>Mapped products</h2><ul>';
 	foreach ( caw_fox_mapped_downloads() as $id ) {
-		echo '<li><a href="' . esc_url( get_edit_post_link( $id ) ) . '">' . esc_html( get_the_title( $id ) ) . '</a></li>';
+		$at    = (int) get_post_meta( $id, '_caw_fox_synced', true );
+		$stale = ! $at || time() - $at > 2 * HOUR_IN_SECONDS;
+		echo '<li><a href="' . esc_url( get_edit_post_link( $id ) ) . '">' . esc_html( get_the_title( $id ) ) . '</a> — <span' . ( $stale ? ' style="color:#b32d2e;font-weight:600"' : '' ) . '>synced ' . esc_html( $at ? human_time_diff( $at ) . ' ago' : 'never' ) . '</span></li>';
 	}
 	echo '</ul><form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
 	wp_nonce_field( 'caw_fox_tools' );
