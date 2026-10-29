@@ -367,13 +367,17 @@ function caw_fox_sync_all() {
  * Background sync, every 10 minutes: refresh the products not synced for an hour, stalest first,
  * stopping after ~20s. One run over every product (~0.7s per option, 60+ options) outlived the
  * host's limit for a cron request and never finished; this keeps each run short.
+ * A product whose sync kills the run is skipped for the hour (_caw_fox_sync_try), so it can't
+ * block the rest; caw_fox_due_run records each run for the Tools page.
  */
 function caw_fox_sync_due() {
 	@set_time_limit( 120 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors
 	$start = microtime( true );
+	$run   = array( 'start' => time(), 'end' => 0, 'id' => 0 );
+	update_option( 'caw_fox_due_run', $run, false );
 	$due   = array();
 	foreach ( caw_fox_mapped_downloads() as $id ) {
-		$at = (int) get_post_meta( $id, '_caw_fox_synced', true );
+		$at = max( (int) get_post_meta( $id, '_caw_fox_synced', true ), (int) get_post_meta( $id, '_caw_fox_sync_try', true ) );
 		if ( time() - $at >= 55 * MINUTE_IN_SECONDS ) {
 			$due[ $id ] = $at;
 		}
@@ -384,8 +388,13 @@ function caw_fox_sync_due() {
 		if ( microtime( true ) - $start > 20 ) {
 			break; // the rest waits for the next run
 		}
+		update_post_meta( $id, '_caw_fox_sync_try', time() );
+		$run['id'] = $id;
+		update_option( 'caw_fox_due_run', $run, false );
 		$changes = array_merge( $changes, caw_fox_sync_download( $id ) );
 	}
+	$run['end'] = time();
+	update_option( 'caw_fox_due_run', $run, false );
 	if ( $changes ) {
 		caw_fox_admin_alert( 'Foxreload prices / availability changed', implode( "\n", $changes ) );
 	}
@@ -1917,12 +1926,26 @@ function caw_fox_render_tools_page() {
 	echo '<tr><th>USD balance</th><td>' . esc_html( $bal['error'] ? caw_fox_error_text( $bal ) : $usd ) . '</td></tr>';
 	echo '<tr><th>Minimum margin</th><td>' . esc_html( caw_fox_min_margin() * 100 ) . '%</td></tr>';
 	echo '<tr><th>Last sync</th><td>' . ( $last ? esc_html( human_time_diff( $last ) . ' ago' ) : 'never' ) . '</td></tr>';
+	$next = wp_next_scheduled( 'caw_fox_sync_due' );
+	$run  = (array) get_option( 'caw_fox_due_run', array() );
+	if ( empty( $run['start'] ) ) {
+		$bg = 'has never run';
+	} elseif ( $run['end'] ) {
+		$bg = 'last run ' . human_time_diff( $run['start'] ) . ' ago, finished';
+	} elseif ( time() - $run['start'] < 3 * MINUTE_IN_SECONDS ) {
+		$bg = 'running now';
+	} else {
+		$bg = 'last run ' . human_time_diff( $run['start'] ) . ' ago DID NOT FINISH' . ( $run['id'] ? ' (stopped during ' . get_the_title( $run['id'] ) . ')' : '' );
+	}
+	$bg .= '; next run ' . ( ! $next ? 'NOT SCHEDULED' : ( $next < time() - 5 * MINUTE_IN_SECONDS ? 'overdue by ' . human_time_diff( $next ) . ' (WP-cron not firing?)' : 'in ' . human_time_diff( $next ) ) );
+	echo '<tr><th>Background sync</th><td>' . esc_html( $bg ) . '</td></tr>';
 	echo '<tr><th>Webhook</th><td>' . ( defined( 'CAW_FOXRELOAD_WEBHOOK_SECRET' ) ? 'secret configured' : 'no secret in wp-config (polling only)' ) . '; registered: ' . esc_html( (string) count( (array) ( isset( $hooks['data']['items'] ) ? $hooks['data']['items'] : $hooks['data'] ) ) ) . '</td></tr></table>';
 	echo '<h2>Mapped products</h2><ul>';
 	foreach ( caw_fox_mapped_downloads() as $id ) {
 		$at    = (int) get_post_meta( $id, '_caw_fox_synced', true );
+		$try   = (int) get_post_meta( $id, '_caw_fox_sync_try', true );
 		$stale = ! $at || time() - $at > 2 * HOUR_IN_SECONDS;
-		echo '<li><a href="' . esc_url( get_edit_post_link( $id ) ) . '">' . esc_html( get_the_title( $id ) ) . '</a> — <span' . ( $stale ? ' style="color:#b32d2e;font-weight:600"' : '' ) . '>synced ' . esc_html( $at ? human_time_diff( $at ) . ' ago' : 'never' ) . '</span></li>';
+		echo '<li><a href="' . esc_url( get_edit_post_link( $id ) ) . '">' . esc_html( get_the_title( $id ) ) . '</a> — <span' . ( $stale ? ' style="color:#b32d2e;font-weight:600"' : '' ) . '>synced ' . esc_html( $at ? human_time_diff( $at ) . ' ago' : 'never' ) . '</span>' . ( $try > $at + 5 * MINUTE_IN_SECONDS ? ' — last try ' . esc_html( human_time_diff( $try ) ) . ' ago did not finish' : '' ) . '</li>';
 	}
 	echo '</ul><form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
 	wp_nonce_field( 'caw_fox_tools' );
