@@ -588,7 +588,8 @@ add_action( 'edd_built_order', function ( $order_id, $order_data ) {
    D. Fulfilment
    Item meta: _caw_fox_status (created|pending|balance|delivered|failed|manual),
    _caw_fox_order (Foxreload order id), _caw_fox_remote (its status), _caw_fox_codes
-   (encrypted), _caw_fox_service, _caw_fox_error, _caw_fox_try, _caw_fox_emailed;
+   (encrypted), _caw_fox_service, _caw_fox_error, _caw_fox_try, _caw_fox_emailed,
+   _caw_fox_cost_quote (cost the margin guard refused), _caw_fox_cost_ok (cost the owner approved);
    virtual cards: _caw_fox_card (issued) or _caw_fox_card_topup (funded), _caw_fox_card_last4, _caw_fox_card_name.
    ========================================================================= */
 
@@ -697,8 +698,11 @@ function caw_fox_process_item( $order, $item ) {
 		if ( $unit <= 0 || (int) $prod['data']['quantity'] < $qty ) {
 			return caw_fox_fail( $order, $item, 'out of stock at Foxreload' );
 		}
-		if ( $cost > $cap ) {
-			return caw_fox_fail( $order, $item, sprintf( 'supplier cost $%s is above the allowed $%s (customer paid $%s)', number_format( $cost, 2 ), number_format( $cap, 2 ), number_format( (float) $item->total, 2 ) ) );
+		// The owner can approve a quoted cost for this one item ("Retry at $X"); 2% leeway for a small move.
+		$ok = (float) caw_fox_meta( $item->id, '_caw_fox_cost_ok' );
+		if ( $cost > $cap && ! ( $ok > 0 && $cost <= $ok * 1.02 ) ) {
+			caw_fox_set( $item->id, '_caw_fox_cost_quote', $cost );
+			return caw_fox_fail( $order, $item, sprintf( 'supplier cost $%s is above the allowed $%s (customer paid $%s). To buy anyway, press "Retry at $%1$s" on the order screen', number_format( $cost, 2 ), number_format( $cap, 2 ), number_format( (float) $item->total, 2 ) ) );
 		}
 		$note = caw_fox_meta( $item->id, '_caw_fox_note' );
 		$note = is_array( $note ) ? $note : array();
@@ -1749,6 +1753,12 @@ add_action( 'edd_view_order_details_main_after', function ( $order_id ) {
 		$actions = '';
 		if ( in_array( $status, array( 'failed', 'balance', 'queued' ), true ) && ! in_array( $remote, array( 'paid', 'processing', 'completed' ), true ) ) {
 			$actions .= '<a class="button" href="' . esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=caw_fox_retry&item=' . $item->id ), 'caw_fox_item_' . $item->id ) ) . '">Retry</a> ';
+			$quote = (float) caw_fox_meta( $item->id, '_caw_fox_cost_quote' );
+			if ( 'failed' === $status && $quote > 0 ) {
+				$diff = (float) $item->total - $quote;
+				$ask  = sprintf( 'Buy from Foxreload at $%s? The customer paid $%s: %s $%s.', number_format( $quote, 2 ), number_format( (float) $item->total, 2 ), $diff >= 0 ? 'profit' : 'LOSS', number_format( abs( $diff ), 2 ) );
+				$actions .= '<a class="button button-primary" href="' . esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=caw_fox_retry_cost&item=' . $item->id ), 'caw_fox_item_' . $item->id ) ) . '" onclick="return confirm(' . esc_attr( wp_json_encode( $ask ) ) . ')">Retry at $' . esc_html( number_format( $quote, 2 ) ) . '</a> ';
+			}
 		}
 		if ( 'delivered' !== $status && 'manual' !== $status ) {
 			$actions .= '<a class="button" href="' . esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=caw_fox_manual&item=' . $item->id ), 'caw_fox_item_' . $item->id ) ) . '" onclick="return confirm(\'Mark as delivered by hand?\')">Mark as delivered</a>';
@@ -1773,18 +1783,35 @@ function caw_fox_admin_item_action( $cb ) {
 	exit;
 }
 
+/** Start the item over. $approve = a supplier cost the owner accepted for it (0 = the normal margin guard). */
+function caw_fox_retry_item( $item, $approve = 0.0 ) {
+	// A refunded/failed Foxreload order can't be re-paid: start a fresh one under a new reference.
+	if ( caw_fox_meta( $item->id, '_caw_fox_order' ) ) {
+		caw_fox_set( $item->id, '_caw_fox_try', (int) caw_fox_meta( $item->id, '_caw_fox_try' ) + 1 );
+	}
+	foreach ( array( '_caw_fox_order', '_caw_fox_status', '_caw_fox_remote', '_caw_fox_error', '_caw_fox_cost_quote', '_caw_fox_cost_ok' ) as $k ) {
+		edd_delete_order_item_meta( $item->id, $k );
+	}
+	$who = wp_get_current_user()->user_login;
+	if ( $approve > 0 ) {
+		caw_fox_set( $item->id, '_caw_fox_cost_ok', $approve );
+		caw_fox_note_order( $item->order_id, sprintf( 'retry at supplier cost $%s approved by %s.', number_format( $approve, 2 ), $who ) );
+	} else {
+		caw_fox_note_order( $item->order_id, 'retry requested by ' . $who . '.' );
+	}
+	edd_update_order_meta( $item->order_id, '_caw_fox_polls', 0 );
+	caw_fox_fulfil( $item->order_id );
+}
+
 add_action( 'admin_post_caw_fox_retry', function () {
 	caw_fox_admin_item_action( function ( $item ) {
-		// A refunded/failed Foxreload order can't be re-paid: start a fresh one under a new reference.
-		if ( caw_fox_meta( $item->id, '_caw_fox_order' ) ) {
-			caw_fox_set( $item->id, '_caw_fox_try', (int) caw_fox_meta( $item->id, '_caw_fox_try' ) + 1 );
-		}
-		foreach ( array( '_caw_fox_order', '_caw_fox_status', '_caw_fox_remote', '_caw_fox_error' ) as $k ) {
-			edd_delete_order_item_meta( $item->id, $k );
-		}
-		edd_update_order_meta( $item->order_id, '_caw_fox_polls', 0 );
-		caw_fox_note_order( $item->order_id, 'retry requested by ' . wp_get_current_user()->user_login . '.' );
-		caw_fox_fulfil( $item->order_id );
+		caw_fox_retry_item( $item );
+	} );
+} );
+
+add_action( 'admin_post_caw_fox_retry_cost', function () {
+	caw_fox_admin_item_action( function ( $item ) {
+		caw_fox_retry_item( $item, (float) caw_fox_meta( $item->id, '_caw_fox_cost_quote' ) );
 	} );
 } );
 
