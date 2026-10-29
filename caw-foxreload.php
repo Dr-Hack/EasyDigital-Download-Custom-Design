@@ -171,6 +171,31 @@ function caw_fox_delivery_label( $c ) {
 	return $out . ( $ask ? ' — asks for ' . implode( ', ', array_map( 'caw_fox_field_label', $ask ) ) : '' );
 }
 
+// Supplier allows one per order on every mapped option (Telegram Premium) → same as EDD's "Disable quantity input".
+add_filter( 'edd_download_quantity_disabled', function ( $disabled, $download_id ) {
+	$map = $disabled ? array() : caw_fox_map( $download_id );
+	if ( ! $map ) {
+		return $disabled;
+	}
+	foreach ( array_keys( $map['items'] ) as $pid ) {
+		$c = caw_fox_cache( $download_id, $pid );
+		if ( ! $c || 1 !== ( isset( $c['max'] ) ? (int) $c['max'] : 0 ) ) {
+			return $disabled;
+		}
+	}
+	return true;
+}, 10, 2 );
+
+// Adding the same option again bumps its quantity even with the input hidden — cap it at the supplier's per-order limit.
+add_action( 'edd_post_add_to_cart', function () {
+	foreach ( caw_fox_cart_lines() as $line ) {
+		$max = ! empty( $line['cache']['max'] ) ? (int) $line['cache']['max'] : 0;
+		if ( $max && (int) $line['item']['quantity'] > $max ) {
+			edd_set_cart_item_quantity( $line['item']['id'], $max, $line['item']['options'] );
+		}
+	}
+} );
+
 /** Buyable right now: in stock at the supplier and still profitable at the last sync. */
 function caw_fox_available( $download_id, $price_id ) {
 	$c = caw_fox_cache( $download_id, $price_id );
@@ -585,7 +610,7 @@ add_action( 'edd_purchase_form_user_info_fields', function () {
 		$hint = $req && array_diff( $req, array( 'card_id' ) ) ? trim( (string) get_post_meta( $line['item']['id'], '_caw_fox_hint', true ) ) : '';
 		if ( '' !== $hint && empty( $hinted[ $line['item']['id'] ] ) ) {
 			$hinted[ $line['item']['id'] ] = true;
-			$rows .= '<p class="caw-fox-hint">' . wp_kses( $hint, array( 'strong' => array(), 'em' => array(), 'b' => array(), 'a' => array( 'href' => array(), 'target' => array(), 'rel' => array() ) ) ) . '</p>';
+			$rows .= '<p class="caw-fox-note">' . wp_kses( $hint, array( 'strong' => array(), 'em' => array(), 'b' => array(), 'a' => array( 'href' => array(), 'target' => array(), 'rel' => array() ) ) ) . '</p>';
 		}
 		foreach ( $req as $field ) {
 			$name  = 'caw_fox_note[' . (int) $key . '][' . sanitize_key( $field ) . ']';
