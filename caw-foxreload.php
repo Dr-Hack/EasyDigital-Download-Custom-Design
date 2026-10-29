@@ -158,14 +158,14 @@ function caw_fox_is_direct( $download_id, $price_id ) {
 /** Mapping box: how an option reaches the buyer, in the owner's words. */
 function caw_fox_delivery_label( $c ) {
 	$type = isset( $c['type'] ) ? $c['type'] : 'code';
-	if ( caw_fox_is_card_type( $type ) ) {
+	if ( ! caw_fox_supported_type( $type ) ) {
+		$out = $type . ' (not supported yet)';
+	} elseif ( caw_fox_is_card_type( $type ) ) {
 		$out = 'banking_card' === $type ? 'Virtual card' : 'Card top-up';
 	} elseif ( ! empty( $c['svc'] ) || 'direct_topup' === $type ) {
 		$out = 'Straight to buyer\'s account';
-	} elseif ( 'code' === $type ) {
-		$out = 'Code (emailed)';
 	} else {
-		$out = $type . ' (not supported yet)';
+		$out = 'Code (emailed)';
 	}
 	$ask = array_diff( isset( $c['req'] ) ? (array) $c['req'] : array(), array( 'card_id' ) );
 	return $out . ( $ask ? ' — asks for ' . implode( ', ', array_map( 'caw_fox_field_label', $ask ) ) : '' );
@@ -347,6 +347,9 @@ function caw_fox_sync_download( $download_id, $exact = false ) {
 			$reason = '';
 			if ( ! caw_fox_supported_type( $entry['type'] ) ) {
 				$reason = 'delivery type "' . $entry['type'] . '" is not supported yet';
+			} elseif ( in_array( 'password', $entry['req'], true ) ) {
+				// "Auto via login" top-ups: we'd store and email the buyer's game password in plain text.
+				$reason = 'asks for the buyer\'s account password (not supported)';
 			} elseif ( ! isset( $costs[ $pid ] ) ) {
 				$reason = 'out of stock at supplier';
 			} elseif ( $entry['cost'] > $sell * ( 1 - caw_fox_min_margin() ) ) {
@@ -538,13 +541,21 @@ function caw_fox_render_once( $box ) {
 
 function caw_fox_field_label( $field ) {
 	$labels = array(
-		'character_id' => __( 'Player ID', 'mayosis' ),
-		'account_id'   => __( 'Player ID', 'mayosis' ),
-		'user_id'      => __( 'User ID', 'mayosis' ),
-		'username'     => __( 'Username', 'mayosis' ),
-		'server'       => __( 'Server', 'mayosis' ),
-		'server_id'    => __( 'Server ID', 'mayosis' ),
-		'card_id'      => __( 'Card to renew', 'mayosis' ),
+		'character_id'   => __( 'Player ID', 'mayosis' ),
+		'account_id'     => __( 'Player ID', 'mayosis' ),
+		'user_id'        => __( 'User ID', 'mayosis' ),
+		'username'       => __( 'Username', 'mayosis' ),
+		'server'         => __( 'Server', 'mayosis' ),
+		'server_id'      => __( 'Server ID', 'mayosis' ),
+		'server_region'  => __( 'Server region', 'mayosis' ),
+		'region'         => __( 'Region', 'mayosis' ),
+		'platform'       => __( 'Platform', 'mayosis' ),
+		'character_name' => __( 'Character name', 'mayosis' ),
+		'login'          => __( 'Account login (email)', 'mayosis' ),
+		'genshin_uid'    => __( 'UID', 'mayosis' ),
+		'kingdom_id'     => __( 'Kingdom ID', 'mayosis' ),
+		'lord_id'        => __( 'Lord ID', 'mayosis' ),
+		'card_id'        => __( 'Card to renew', 'mayosis' ),
 	);
 	return isset( $labels[ $field ] ) ? $labels[ $field ] : ucwords( str_replace( '_', ' ', $field ) );
 }
