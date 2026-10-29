@@ -2683,3 +2683,84 @@ body.sp-night-mode-on .caw-fox-resume { color: #5aa6ea !important; border-color:
     .caw-fox-vcard-meta { gap: 12px; }
     .caw-fox-vcard-num [data-f] { font-size: 15px; letter-spacing: .03em; }
 }
+
+/* =============================================================================
+   CHECKOUT — EMPTY CART (caw_checkout_empty_cart in functions.php)
+   ============================================================================= */
+.caw-empty-cart {
+    --caw-ec-card: #ffffff;
+    --caw-ec-line: #e3e8f0;
+    --caw-ec-txt: #1a2233;
+    --caw-ec-muted: #5a6b88;
+    --caw-ec-accent: #1e73be;
+    --caw-ec-tint: rgba(30, 115, 190, .09);
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 32px 16px 56px;
+    color: var(--caw-ec-txt);
+}
+body.sp-night-mode-on .caw-empty-cart {
+    --caw-ec-card: #192237;
+    --caw-ec-line: #28375a;
+    --caw-ec-txt: #f2f2f2;
+    --caw-ec-muted: #9fb0d0;
+    --caw-ec-tint: rgba(43, 138, 230, .16);
+}
+.caw-empty-cart * { box-sizing: border-box; }
+.caw-ec-hero {
+    text-align: center;
+    padding: 36px 20px;
+    border: 1px solid var(--caw-ec-line);
+    border-radius: 14px;
+    background: var(--caw-ec-card);
+}
+.caw-ec-icon {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 64px; height: 64px; border-radius: 50%;
+    background: var(--caw-ec-tint); color: var(--caw-ec-accent);
+}
+.caw-ec-title { margin: 14px 0 6px; font-size: 26px; line-height: 1.25; color: var(--caw-ec-txt); }
+.caw-ec-sub { margin: 0 auto 20px; max-width: 460px; font-size: 15px; color: var(--caw-ec-muted); }
+.caw-ec-actions { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; justify-content: center; }
+.caw-ec-btn {
+    display: inline-block; padding: 12px 26px; border-radius: 8px;
+    background: var(--caw-ec-accent); color: #fff !important; font-weight: 600; text-decoration: none;
+}
+.caw-ec-btn:hover, .caw-ec-btn:focus-visible { background: #2b8ae6; color: #fff; }
+.caw-ec-link { color: var(--caw-ec-accent); font-weight: 500; text-decoration: underline; text-underline-offset: 3px; }
+.caw-ec-cats { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin: 22px 0 6px; }
+.caw-ec-cats a {
+    padding: 7px 14px; border: 1px solid var(--caw-ec-line); border-radius: 999px;
+    background: var(--caw-ec-card); color: var(--caw-ec-txt); font-size: 14px; text-decoration: none;
+    transition: border-color .15s, color .15s;
+}
+.caw-ec-cats a:hover, .caw-ec-cats a:focus-visible { border-color: var(--caw-ec-accent); color: var(--caw-ec-accent); }
+.caw-ec-h { margin: 30px 0 14px; font-size: 20px; color: var(--caw-ec-txt); }
+.caw-ec-grid {
+    list-style: none; margin: 0; padding: 0;
+    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px;
+}
+.caw-ec-card {
+    display: flex; flex-direction: column; height: 100%;
+    border: 1px solid var(--caw-ec-line); border-radius: 12px; overflow: hidden;
+    background: var(--caw-ec-card); color: var(--caw-ec-txt); text-decoration: none;
+    transition: border-color .15s, transform .15s;
+}
+.caw-ec-card:hover, .caw-ec-card:focus-visible { border-color: var(--caw-ec-accent); transform: translateY(-2px); }
+.caw-ec-thumb { position: relative; display: block; aspect-ratio: 16 / 10; overflow: hidden; background: var(--caw-ec-tint); }
+.caw-ec-thumb img { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: cover; }
+.caw-ec-name { padding: 12px 14px 4px; font-size: 15px; font-weight: 600; line-height: 1.35; }
+.caw-ec-price { padding: 0 14px 14px; margin-top: auto; font-size: 14px; color: var(--caw-ec-muted); }
+@media (prefers-reduced-motion: reduce) {
+    .caw-ec-card, .caw-ec-cats a { transition: none; }
+    .caw-ec-card:hover { transform: none; }
+}
+@media (max-width: 900px) { .caw-ec-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 640px) {
+    .caw-empty-cart { padding-top: 20px; }
+    .caw-ec-hero { padding: 28px 16px; }
+    .caw-ec-title { font-size: 22px; }
+    .caw-ec-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .caw-ec-name { padding: 10px 10px 4px; font-size: 14px; }
+    .caw-ec-price { padding: 0 10px 12px; }
+}

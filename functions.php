@@ -565,6 +565,9 @@ function caw_prepend_checkout_header( $block_content, $block ) {
     if ( ! function_exists( 'edd_is_checkout' ) || ! edd_is_checkout() ) {
         return $block_content;
     }
+    if ( ! edd_get_cart_contents() && ! edd_cart_has_fees() ) {
+        return $block_content; // the empty-cart block has its own heading
+    }
     $header = '<div class="caw-checkout-header">'
         . '<h1 class="caw-checkout-title">' . esc_html__( 'Checkout', 'mayosis' ) . '</h1>'
         . '<span class="caw-secure-badge"><i class="fa fa-lock"></i> ' . esc_html__( 'Secure Checkout', 'mayosis' ) . '</span>'
@@ -578,6 +581,109 @@ function caw_prepend_checkout_header( $block_content, $block ) {
 
 // Trust badges are injected via JavaScript (see caw_checkout_inline_js below)
 // so they survive EDD's AJAX cart refresh that replaces #edd_checkout_cart.
+
+/* =============================================================================
+   CHECKOUT — EMPTY CART
+   EDD prints "Your cart is empty." on edd_cart_empty and the parent theme adds
+   a giant icon, "No Problem, Lets Start Browse" and a Related Products column
+   that is always empty there. On checkout, replace both with one block:
+   message, store link, category shortcuts and the best sellers.
+   ============================================================================= */
+
+add_action( 'edd_cart_empty', 'caw_checkout_empty_cart', 1 );
+function caw_checkout_empty_cart() {
+    if ( ! edd_is_checkout() ) {
+        return;
+    }
+    remove_action( 'edd_cart_empty', 'edd_empty_checkout_cart' );
+    remove_action( 'edd_cart_empty', 'checkout_empty_cart_template' );
+
+    $store = '';
+    $menus = get_nav_menu_locations();
+    if ( ! empty( $menus['main-menu'] ) ) {
+        foreach ( (array) wp_get_nav_menu_items( $menus['main-menu'] ) as $m ) {
+            if ( ! $m->menu_item_parent && 'store' === strtolower( trim( wp_strip_all_tags( $m->title ) ) ) ) {
+                $store = $m->url;
+                break;
+            }
+        }
+    }
+    $store   = $store ? $store : get_post_type_archive_link( 'download' );
+    $history = edd_get_option( 'purchase_history_page' ) ? get_permalink( edd_get_option( 'purchase_history_page' ) ) : '';
+
+    $html = get_transient( 'caw_empty_cart_picks' );
+    if ( false === $html ) {
+        $html = '';
+        $cats = get_terms( array( 'taxonomy' => 'download_category', 'parent' => 0, 'orderby' => 'count', 'order' => 'DESC', 'number' => 8, 'hide_empty' => true ) );
+        if ( $cats && ! is_wp_error( $cats ) ) {
+            $html .= '<nav class="caw-ec-cats" aria-label="' . esc_attr__( 'Shop by category', 'mayosis' ) . '">';
+            foreach ( $cats as $t ) {
+                $html .= '<a href="' . esc_url( get_term_link( $t ) ) . '">' . esc_html( $t->name ) . '</a>';
+            }
+            $html .= '</nav>';
+        }
+        $picks = get_posts( array(
+            'post_type'      => 'download',
+            'post_status'    => 'publish',
+            'posts_per_page' => 8,
+            'meta_key'       => '_edd_download_sales', // phpcs:ignore WordPress.DB.SlowDBQuery
+            'orderby'        => 'meta_value_num',
+            'order'          => 'DESC',
+        ) );
+        if ( $picks ) {
+            $html .= '<h2 class="caw-ec-h">' . esc_html__( 'Popular right now', 'mayosis' ) . '</h2><ul class="caw-ec-grid">';
+            foreach ( $picks as $p ) {
+                $price = edd_has_variable_prices( $p->ID ) ? edd_get_lowest_price_option( $p->ID ) : edd_get_download_price( $p->ID );
+                $label = html_entity_decode( edd_currency_filter( edd_format_amount( $price ) ), ENT_QUOTES, 'UTF-8' );
+                $html .= '<li><a class="caw-ec-card" href="' . esc_url( get_permalink( $p ) ) . '">'
+                    . '<span class="caw-ec-thumb">' . get_the_post_thumbnail( $p, 'medium', array( 'loading' => 'lazy', 'alt' => '' ) ) . '</span>'
+                    . '<span class="caw-ec-name">' . esc_html( html_entity_decode( get_the_title( $p ), ENT_QUOTES, 'UTF-8' ) ) . '</span>'
+                    . '<span class="caw-ec-price">' . esc_html( ( edd_has_variable_prices( $p->ID ) ? __( 'From ', 'mayosis' ) : '' ) . $label ) . '</span>'
+                    . '</a></li>';
+            }
+            $html .= '</ul>';
+        }
+        set_transient( 'caw_empty_cart_picks', $html, 15 * MINUTE_IN_SECONDS ); // automatic pricing moves prices without a save
+    }
+
+    echo '<section class="caw-empty-cart">'
+        . '<div class="caw-ec-hero">'
+        . '<span class="caw-ec-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2.5 3.5h3l2.4 11.2a1.6 1.6 0 0 0 1.6 1.3h8.1a1.6 1.6 0 0 0 1.6-1.2l1.6-6.8H6.6"/></svg></span>'
+        . '<h1 class="caw-ec-title">' . esc_html__( 'Your cart is empty', 'mayosis' ) . '</h1>'
+        . '<p class="caw-ec-sub">' . esc_html__( 'Gift cards, subscriptions, trading signals and more, all paid in crypto.', 'mayosis' ) . '</p>'
+        . '<div class="caw-ec-actions">'
+        . '<a class="caw-ec-btn" href="' . esc_url( $store ) . '">' . esc_html__( 'Browse the store', 'mayosis' ) . '</a>'
+        . ( $history ? '<a class="caw-ec-link" href="' . esc_url( $history ) . '">' . esc_html__( 'View your past orders', 'mayosis' ) . '</a>' : '' )
+        . '</div></div>'
+        . $html // phpcs:ignore WordPress.Security.EscapeOutput -- escaped when built
+        . '</section>';
+}
+
+// Best sellers and categories change with sales and listings; don't wait out the cache.
+add_action( 'save_post_download', function () {
+    delete_transient( 'caw_empty_cart_picks' );
+} );
+
+/* =============================================================================
+   CHECKOUT — LICENCE RENEWAL BUTTON
+   Software Licensing puts "Renew An Existing License" on every checkout. Only
+   show it when the cart holds a licensed product or a renewal is in progress.
+   ============================================================================= */
+
+add_action( 'edd_after_checkout_cart', 'caw_checkout_renewal_only_when_licensed', 9 );
+add_action( 'edd_before_purchase_form', 'caw_checkout_renewal_only_when_licensed', -2 );
+function caw_checkout_renewal_only_when_licensed() {
+    if ( ! function_exists( 'edd_sl_renewal_form' ) || ( function_exists( 'EDD' ) && EDD()->session->get( 'edd_is_renewal' ) ) ) {
+        return;
+    }
+    foreach ( (array) edd_get_cart_contents() as $item ) {
+        if ( get_post_meta( $item['id'], '_edd_sl_enabled', true ) ) {
+            return;
+        }
+    }
+    remove_action( 'edd_after_checkout_cart', 'edd_sl_renewal_form' );
+    remove_action( 'edd_before_purchase_form', 'edd_sl_renewal_form', -1 );
+}
 
 /* =============================================================================
    CHECKOUT — LOCK NOTE BELOW PURCHASE BUTTON
