@@ -2764,3 +2764,17 @@ body.sp-night-mode-on .caw-empty-cart {
     .caw-ec-name { padding: 10px 10px 4px; font-size: 14px; }
     .caw-ec-price { padding: 0 10px 12px; }
 }
+/* Night mode: the theme colours every link with the "dark link colour" (purple on prod) and
+   forces text colours with !important — pin the button, link and chips so they stay readable. */
+body.sp-night-mode-on .caw-empty-cart a.caw-ec-btn,
+body.sp-night-mode-on .caw-empty-cart a.caw-ec-btn:visited,
+body.sp-night-mode-on .caw-empty-cart a.caw-ec-btn:hover { color: #ffffff !important; }
+body.sp-night-mode-on .caw-empty-cart a.caw-ec-link,
+body.sp-night-mode-on .caw-empty-cart a.caw-ec-link:visited { color: #8cc4f5 !important; }
+body.sp-night-mode-on .caw-empty-cart a.caw-ec-link:hover { color: #ffffff !important; }
+body.sp-night-mode-on .caw-empty-cart .caw-ec-cats a,
+body.sp-night-mode-on .caw-empty-cart .caw-ec-cats a:visited { color: #f2f2f2 !important; }
+body.sp-night-mode-on .caw-empty-cart .caw-ec-cats a:hover { color: #8cc4f5 !important; }
+body.sp-night-mode-on .caw-empty-cart a.caw-ec-card,
+body.sp-night-mode-on .caw-empty-cart a.caw-ec-card:visited { color: #f2f2f2 !important; }
+body.sp-night-mode-on .caw-empty-cart .caw-ec-price { color: #9fb0d0 !important; }

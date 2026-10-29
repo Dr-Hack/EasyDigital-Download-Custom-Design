@@ -587,7 +587,7 @@ function caw_prepend_checkout_header( $block_content, $block ) {
    EDD prints "Your cart is empty." on edd_cart_empty and the parent theme adds
    a giant icon, "No Problem, Lets Start Browse" and a Related Products column
    that is always empty there. On checkout, replace both with one block:
-   message, store link, category shortcuts and the best sellers.
+   message, store link, category shortcuts, newest products and best sellers.
    ============================================================================= */
 
 add_action( 'edd_cart_empty', 'caw_checkout_empty_cart', 1 );
@@ -622,27 +622,33 @@ function caw_checkout_empty_cart() {
             }
             $html .= '</nav>';
         }
-        $picks = get_posts( array(
-            'post_type'      => 'download',
-            'post_status'    => 'publish',
-            'posts_per_page' => 8,
-            'meta_key'       => '_edd_download_sales', // phpcs:ignore WordPress.DB.SlowDBQuery
-            'orderby'        => 'meta_value_num',
-            'order'          => 'DESC',
-        ) );
-        if ( $picks ) {
-            $html .= '<h2 class="caw-ec-h">' . esc_html__( 'Popular right now', 'mayosis' ) . '</h2><ul class="caw-ec-grid">';
-            foreach ( $picks as $p ) {
+        $grid = function ( $title, $posts ) {
+            if ( ! $posts ) {
+                return '';
+            }
+            $out = '<h2 class="caw-ec-h">' . esc_html( $title ) . '</h2><ul class="caw-ec-grid">';
+            foreach ( $posts as $p ) {
                 $price = edd_has_variable_prices( $p->ID ) ? edd_get_lowest_price_option( $p->ID ) : edd_get_download_price( $p->ID );
                 $label = html_entity_decode( edd_currency_filter( edd_format_amount( $price ) ), ENT_QUOTES, 'UTF-8' );
-                $html .= '<li><a class="caw-ec-card" href="' . esc_url( get_permalink( $p ) ) . '">'
+                $out  .= '<li><a class="caw-ec-card" href="' . esc_url( get_permalink( $p ) ) . '">'
                     . '<span class="caw-ec-thumb">' . get_the_post_thumbnail( $p, 'medium', array( 'loading' => 'lazy', 'alt' => '' ) ) . '</span>'
                     . '<span class="caw-ec-name">' . esc_html( html_entity_decode( get_the_title( $p ), ENT_QUOTES, 'UTF-8' ) ) . '</span>'
                     . '<span class="caw-ec-price">' . esc_html( ( edd_has_variable_prices( $p->ID ) ? __( 'From ', 'mayosis' ) : '' ) . $label ) . '</span>'
                     . '</a></li>';
             }
-            $html .= '</ul>';
-        }
+            return $out . '</ul>';
+        };
+        $latest = get_posts( array( 'post_type' => 'download', 'post_status' => 'publish', 'posts_per_page' => 4, 'orderby' => 'date', 'order' => 'DESC' ) );
+        $html  .= $grid( __( 'Latest launches', 'mayosis' ), $latest );
+        $html  .= $grid( __( 'Popular right now', 'mayosis' ), get_posts( array(
+            'post_type'      => 'download',
+            'post_status'    => 'publish',
+            'posts_per_page' => 4,
+            'post__not_in'   => wp_list_pluck( $latest, 'ID' ), // never the same card twice
+            'meta_key'       => '_edd_download_sales', // phpcs:ignore WordPress.DB.SlowDBQuery
+            'orderby'        => 'meta_value_num',
+            'order'          => 'DESC',
+        ) ) );
         set_transient( 'caw_empty_cart_picks', $html, 15 * MINUTE_IN_SECONDS ); // automatic pricing moves prices without a save
     }
 
