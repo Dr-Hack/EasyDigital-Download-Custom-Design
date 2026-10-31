@@ -407,7 +407,7 @@ function caw_esim_render_picker( $id ) {
 		</div>
 		<div class="caw-esim-plans" aria-live="polite"></div>
 		<p class="caw-esim-note"><?php esc_html_e( 'Data only, no phone number. Your phone must support eSIM and be network-unlocked. To check, dial *#06#: if an EID number shows, it supports eSIM.', 'mayosis' ); ?></p>
-		<p class="caw-esim-info"><?php esc_html_e( 'Need a longer plan, like 6 months or 1 year?', 'mayosis' ); ?> <a href="<?php echo esc_url( home_url( '/contact/' ) ); ?>"><?php esc_html_e( 'Contact Crypto Awaz', 'mayosis' ); ?></a> <?php esc_html_e( 'and we\'ll arrange it for you.', 'mayosis' ); ?></p>
+		<p class="caw-esim-info"><?php esc_html_e( 'Can\'t find the plan you need?', 'mayosis' ); ?> <a href="<?php echo esc_url( home_url( '/contact/' ) ); ?>"><?php esc_html_e( 'Contact Crypto Awaz', 'mayosis' ); ?></a> <?php esc_html_e( 'and we\'ll arrange it for you.', 'mayosis' ); ?></p>
 		<div class="caw-pricerow" aria-live="polite" aria-atomic="true" hidden><span class="caw-price"></span><span class="caw-per"></span></div>
 		<button type="button" class="caw-cta caw-esim-buy" disabled><span class="caw-cta-label"><?php esc_html_e( 'Choose a destination', 'mayosis' ); ?></span></button>
 		<p class="caw-esim-msg" role="alert" hidden></p>
