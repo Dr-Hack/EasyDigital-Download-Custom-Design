@@ -711,9 +711,13 @@ add_action( 'edd_built_order', function ( $order_id, $order_data ) {
 		if ( empty( $notes[ $item->cart_index ] ) || ! is_array( $notes[ $item->cart_index ] ) ) {
 			continue;
 		}
+		// Only the fields checkout validated: a posted CARD_ID would otherwise replace the checked card_id.
+		$c     = caw_fox_cache( $item->product_id, $item->price_id );
 		$clean = array();
-		foreach ( $notes[ $item->cart_index ] as $field => $v ) {
-			$clean[ sanitize_key( $field ) ] = caw_fox_clean_note( sanitize_key( $field ), wp_unslash( $v ) );
+		foreach ( ! empty( $c['req'] ) ? (array) $c['req'] : array() as $field ) {
+			if ( isset( $notes[ $item->cart_index ][ $field ] ) ) {
+				$clean[ sanitize_key( $field ) ] = caw_fox_clean_note( $field, wp_unslash( $notes[ $item->cart_index ][ $field ] ) );
+			}
 		}
 		edd_update_order_item_meta( $item->id, '_caw_fox_note', $clean );
 	}
@@ -1807,7 +1811,10 @@ add_action( 'wp_ajax_caw_fox_card', function () {
    ========================================================================= */
 
 add_action( 'add_meta_boxes_download', function () {
-	add_meta_box( 'caw-foxreload', 'Foxreload supplier', 'caw_fox_render_product_box', 'download', 'normal', 'default' );
+	// Mapping spends the shop's supplier balance, so vendors (who hold edit_product) don't get it.
+	if ( current_user_can( 'manage_shop_settings' ) ) {
+		add_meta_box( 'caw-foxreload', 'Foxreload supplier', 'caw_fox_render_product_box', 'download', 'normal', 'default' );
+	}
 } );
 
 function caw_fox_render_product_box( $post ) {
@@ -1855,7 +1862,7 @@ function caw_fox_render_product_box( $post ) {
 }
 
 add_action( 'save_post_download', function ( $post_id ) {
-	if ( ! isset( $_POST['caw_fox_nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['caw_fox_nonce'] ) ), 'caw_fox_product' ) || ! current_user_can( 'edit_product', $post_id ) || wp_is_post_revision( $post_id ) ) {
+	if ( ! isset( $_POST['caw_fox_nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['caw_fox_nonce'] ) ), 'caw_fox_product' ) || ! current_user_can( 'manage_shop_settings' ) || wp_is_post_revision( $post_id ) ) {
 		return;
 	}
 	$items = array();
@@ -1934,7 +1941,7 @@ add_action( 'edd_view_order_details_main_after', function ( $order_id ) {
 			$detail .= '<details><summary>Show codes</summary><code>' . esc_html( implode( "\n", caw_fox_codes( $item->id ) ) ) . '</code></details>';
 		}
 		$actions = '';
-		if ( in_array( $status, array( 'failed', 'balance', 'queued' ), true ) && ! in_array( $remote, array( 'paid', 'processing', 'completed' ), true ) ) {
+		if ( caw_fox_can_retry( $item ) ) {
 			$actions .= '<a class="button" href="' . esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=caw_fox_retry&item=' . $item->id ), 'caw_fox_item_' . $item->id ) ) . '">Retry</a> ';
 			$quote = (float) caw_fox_meta( $item->id, '_caw_fox_cost_quote' );
 			if ( 'failed' === $status && $quote > 0 ) {
@@ -1966,8 +1973,18 @@ function caw_fox_admin_item_action( $cb ) {
 	exit;
 }
 
+/** Whether a retry is allowed now. Checked again on the click: a Retry link stays valid after the item is delivered. */
+function caw_fox_can_retry( $item ) {
+	$status = caw_fox_meta( $item->id, '_caw_fox_status' ) ?: 'queued';
+	return in_array( $status, array( 'failed', 'balance', 'queued' ), true ) && ! in_array( caw_fox_meta( $item->id, '_caw_fox_remote' ), array( 'paid', 'processing', 'completed' ), true );
+}
+
 /** Start the item over. $approve = a supplier cost the owner accepted for it (0 = the normal margin guard). */
 function caw_fox_retry_item( $item, $approve = 0.0 ) {
+	if ( ! caw_fox_can_retry( $item ) ) {
+		caw_fox_note_order( $item->order_id, 'retry ignored: the item is no longer waiting for one.' );
+		return;
+	}
 	// A refunded/failed Foxreload order can't be re-paid: start a fresh one under a new reference.
 	if ( caw_fox_meta( $item->id, '_caw_fox_order' ) ) {
 		caw_fox_set( $item->id, '_caw_fox_try', (int) caw_fox_meta( $item->id, '_caw_fox_try' ) + 1 );

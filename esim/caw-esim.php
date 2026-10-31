@@ -6,8 +6,9 @@
  * The customer searches a country, its plans load live, and Buy turns the chosen plan into a real
  * price option on the product (created on first purchase, re-used after). From there it is an
  * ordinary Foxreload option, so checkout, the margin guard, delivery, retries and refunds in
- * caw-foxreload.php all apply. Only plans someone has bought become options, which keeps the
- * hourly sync out of it: their cost is re-read at add-to-cart and at checkout instead.
+ * caw-foxreload.php all apply. Only plans someone has put in a cart become options, which keeps the
+ * hourly sync out of it: their cost is re-read at add-to-cart and at checkout instead. Options nobody
+ * bought are reclaimed when the limit is reached, so bots can't fill it for good.
  *
  * Post meta: _caw_esim (1), _caw_esim_rows (master copy of the price options, because EDD rewrites
  * edd_variable_prices from the edit form), and the usual _caw_fox / _caw_fox_cache / _caw_fox_guide.
@@ -200,6 +201,19 @@ function caw_esim_save_rows( $download_id, $rows ) {
 	}, $rows ) ) ) );
 }
 
+/** Options on no order, not added to a cart for a day. The first stays: it gives EDD its "From $x" price. */
+function caw_esim_unsold_rows( $download_id, $rows, $cache ) {
+	global $wpdb;
+	$sold = array_map( 'intval', $wpdb->get_col( $wpdb->prepare( "SELECT DISTINCT price_id FROM {$wpdb->prefix}edd_order_items WHERE product_id = %d", $download_id ) ) );
+	$out  = array();
+	foreach ( array_slice( array_keys( $rows ), 1 ) as $pid ) {
+		if ( ! in_array( (int) $pid, $sold, true ) && ( empty( $cache[ $pid ]['at'] ) || time() - $cache[ $pid ]['at'] > DAY_IN_SECONDS ) ) {
+			$out[] = $pid;
+		}
+	}
+	return $out;
+}
+
 /**
  * The price option for a plan, created if this is its first sale and repriced from the live cost.
  * Returns the price id, or 0 if the product has reached its limit.
@@ -220,10 +234,17 @@ function caw_esim_row( $download_id, $plan, $country ) {
 	$pid   = array_search( $plan['id'], $map['items'], true );
 	if ( false === $pid ) {
 		if ( count( $rows ) >= CAW_ESIM_MAX_ROWS ) {
+			foreach ( caw_esim_unsold_rows( $download_id, $rows, $cache ) as $old ) {
+				unset( $rows[ $old ], $cache[ $old ], $map['items'][ $old ] );
+			}
+		}
+		if ( count( $rows ) >= CAW_ESIM_MAX_ROWS ) {
 			$wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock ) );
 			return 0;
 		}
-		$pid = $rows ? max( array_keys( $rows ) ) + 1 : 1;
+		// Ids never come back: an old cart must not wake up holding a different plan.
+		$pid = max( (int) get_post_meta( $download_id, '_caw_esim_last', true ), $rows ? max( array_keys( $rows ) ) : 0 ) + 1;
+		update_post_meta( $download_id, '_caw_esim_last', $pid );
 	}
 	$pid                 = (int) $pid;
 	$price               = caw_esim_price( $download_id, $plan['cost'] );
@@ -341,7 +362,10 @@ function caw_esim_ajax_add() {
 	}
 	$pid = caw_esim_row( $id, $plan, $country['name'] );
 	if ( ! $pid ) {
-		caw_fox_admin_alert( 'eSIM store: option limit reached', 'The eSIM product has ' . CAW_ESIM_MAX_ROWS . ' price options, so a customer could not buy a new plan.' );
+		if ( ! get_transient( 'caw_esim_cap_alert' ) ) {
+			set_transient( 'caw_esim_cap_alert', 1, HOUR_IN_SECONDS );
+			caw_fox_admin_alert( 'eSIM store: option limit reached', 'The eSIM product has ' . CAW_ESIM_MAX_ROWS . ' price options added in the last day, so a customer could not buy a new plan. If there are few orders, this is probably a bot adding plans to carts.' );
+		}
 		wp_send_json_error( __( 'This plan can\'t be bought right now. Please contact us.', 'mayosis' ), 503 );
 	}
 	edd_add_to_cart( $id, array( 'price_id' => $pid ) );
@@ -698,11 +722,71 @@ function caw_esim_email_files( $items ) {
 }
 
 /* =========================================================================
+   Product schema: price range of the whole catalogue, full-size image
+   ========================================================================= */
+
+// The product only holds plans sold so far, so the range is built up over a few hourly runs.
+add_action( 'init', function () {
+	if ( ! wp_next_scheduled( 'caw_esim_range' ) ) {
+		wp_schedule_event( time() + 60, 'hourly', 'caw_esim_range' );
+	}
+} );
+
+add_action( 'caw_esim_range', function () {
+	$list  = caw_esim_countries();
+	$range = (array) get_option( 'caw_esim_range', array() );
+	$next  = (int) get_option( 'caw_esim_range_next', 0 );
+	$stop  = time() + 20;
+	for ( $n = 0; $n < count( $list ) && time() < $stop; $n++ ) {
+		$slug  = $list[ ( $next + $n ) % count( $list ) ]['slug'];
+		$plans = caw_esim_plans( $slug );
+		if ( null === $plans ) {
+			break; // supplier trouble: try again next hour
+		}
+		$costs = wp_list_pluck( $plans, 'cost' );
+		if ( $costs ) {
+			$range[ $slug ] = array( min( $costs ), max( $costs ), count( $costs ) );
+		} else {
+			unset( $range[ $slug ] );
+		}
+	}
+	update_option( 'caw_esim_range', $range, false );
+	update_option( 'caw_esim_range_next', $list ? ( $next + $n ) % count( $list ) : 0, false );
+} );
+
+add_filter( 'edd_generate_download_structured_data', function ( $data, $download ) {
+	if ( ! is_object( $download ) || ! caw_esim_is_store( $download->ID ) ) {
+		return $data;
+	}
+	$image = get_the_post_thumbnail_url( $download->ID, 'full' );
+	if ( $image ) {
+		$data['image'] = $image;
+	}
+	$range = (array) get_option( 'caw_esim_range', array() );
+	$low   = $range ? caw_esim_price( $download->ID, min( array_column( $range, 0 ) ) ) : 0;
+	$high  = $range ? caw_esim_price( $download->ID, max( array_column( $range, 1 ) ) ) : 0;
+	if ( $low && $high ) {
+		$data['offers'] = array(
+			'@type'         => 'AggregateOffer',
+			'priceCurrency' => edd_get_currency(),
+			'lowPrice'      => number_format( $low, 2, '.', '' ),
+			'highPrice'     => number_format( $high, 2, '.', '' ),
+			'offerCount'    => array_sum( array_column( $range, 2 ) ),
+			'availability'  => 'https://schema.org/InStock',
+			'url'           => get_permalink( $download->ID ),
+		);
+	}
+	return $data;
+}, 10, 2 );
+
+/* =========================================================================
    Admin
    ========================================================================= */
 
 add_action( 'add_meta_boxes_download', function () {
-	add_meta_box( 'caw-esim', 'eSIM store', 'caw_esim_render_box', 'download', 'normal', 'high' );
+	if ( current_user_can( 'manage_shop_settings' ) ) {
+		add_meta_box( 'caw-esim', 'eSIM store', 'caw_esim_render_box', 'download', 'normal', 'high' );
+	}
 } );
 
 function caw_esim_render_box( $post ) {
@@ -719,7 +803,7 @@ function caw_esim_render_box( $post ) {
 }
 
 add_action( 'save_post_download', function ( $post_id ) {
-	if ( ! isset( $_POST['caw_esim_nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['caw_esim_nonce'] ) ), 'caw_esim_box' ) || ! current_user_can( 'edit_product', $post_id ) || wp_is_post_revision( $post_id ) ) {
+	if ( ! isset( $_POST['caw_esim_nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['caw_esim_nonce'] ) ), 'caw_esim_box' ) || ! current_user_can( 'manage_shop_settings' ) || wp_is_post_revision( $post_id ) ) {
 		return;
 	}
 	if ( empty( $_POST['caw_esim_on'] ) ) {
