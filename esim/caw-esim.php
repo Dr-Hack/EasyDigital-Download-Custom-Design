@@ -127,7 +127,7 @@ function caw_esim_plan( $p ) {
 
 /** In-stock plans of one country, cheapest per data + days + speed tier. Empty array = none; null = supplier unreachable. */
 function caw_esim_plans( $slug ) {
-	$key   = 'caw_esim_p2_' . md5( $slug );
+	$key   = 'caw_esim_p3_' . md5( $slug );
 	$plans = get_transient( $key );
 	if ( is_array( $plans ) ) {
 		return $plans;
@@ -154,6 +154,13 @@ function caw_esim_plans( $slug ) {
 		}
 		if ( count( $items ) < 200 ) {
 			break;
+		}
+	}
+	// A slower plan that costs no less than the 1 Mbps one has no reason to be on the page.
+	foreach ( $plans as $same => $plan ) {
+		$fast = substr( $same, 0, -4 ) . 'fast';
+		if ( 'slow' === substr( $same, -4 ) && isset( $plans[ $fast ] ) && $plans[ $fast ]['cost'] <= $plan['cost'] ) {
+			unset( $plans[ $same ] );
 		}
 	}
 	$plans = array_values( $plans );
