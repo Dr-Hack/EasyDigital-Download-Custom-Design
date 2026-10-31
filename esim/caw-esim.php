@@ -138,8 +138,11 @@ function caw_esim_plans( $slug ) {
 			if ( ! $plan ) {
 				continue;
 			}
-			$same = $plan['daily'] . '|' . $plan['gb'] . '|' . $plan['days'] . '|' . $plan['speed'];
-			if ( ! isset( $plans[ $same ] ) || $plan['cost'] < $plans[ $same ]['cost'] ) {
+			// The supplier lists one size several times, differing only in the speed after the daily limit:
+			// show the cheapest, and on a tie the faster.
+			$same = $plan['daily'] . '|' . $plan['gb'] . '|' . $plan['days'];
+			$held = isset( $plans[ $same ] ) ? $plans[ $same ] : null;
+			if ( ! $held || $plan['cost'] < $held['cost'] || ( $plan['cost'] === $held['cost'] && $plan['speed'] > $held['speed'] ) ) {
 				$plans[ $same ] = $plan;
 			}
 		}
@@ -351,9 +354,10 @@ function caw_esim_render_picker( $id ) {
 		'esim-czechia'              => 'czech republic',
 		'esim-china'                => 'beijing shanghai',
 	);
-	$data = array();
+	$flags = include __DIR__ . '/flag-codes.php';
+	$data  = array();
 	foreach ( $countries as $c ) {
-		$data[] = array( $c['slug'], $c['name'], $c['region'] ? 1 : 0, isset( $aliases[ $c['slug'] ] ) ? $aliases[ $c['slug'] ] : '' );
+		$data[] = array( $c['slug'], $c['name'], $c['region'] ? 1 : 0, isset( $aliases[ $c['slug'] ] ) ? $aliases[ $c['slug'] ] : '', isset( $flags[ $c['slug'] ] ) ? $flags[ $c['slug'] ] : '' );
 	}
 	?>
 	<div class="caw-esim" data-id="<?php echo (int) $id; ?>" data-url="<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>">
@@ -371,6 +375,7 @@ function caw_esim_render_picker( $id ) {
 	<script>
 	(function () {
 		var COUNTRIES = <?php echo wp_json_encode( $data ); // phpcs:ignore WordPress.Security.EscapeOutput ?>;
+		var FLAGS = <?php echo wp_json_encode( get_stylesheet_directory_uri() . '/esim/flags/' ); ?>;
 		var TOP = ['united-arab-emirates', 'saudi-arabia', 'turkiye', 'pakistan', 'qatar', 'oman', 'malaysia', 'thailand', 'united-kingdom', 'united-states'].map(function (s) { return 'esim-' + s; });
 		var T = {
 			buy: <?php echo wp_json_encode( __( 'Buy Now', 'mayosis' ) ); ?>,
@@ -386,7 +391,7 @@ function caw_esim_render_picker( $id ) {
 			nores: <?php echo wp_json_encode( __( 'Nothing found. Try the region, for example Europe.', 'mayosis' ) ); ?>,
 			fail: <?php echo wp_json_encode( __( 'Something went wrong. Please try again.', 'mayosis' ) ); ?>,
 			regions: <?php echo wp_json_encode( __( 'Regions', 'mayosis' ) ); ?>,
-			countries: <?php echo wp_json_encode( __( 'Countries', 'mayosis' ) ); ?>,
+			countries: <?php echo wp_json_encode( __( 'All countries', 'mayosis' ) ); ?>,
 			popular: <?php echo wp_json_encode( __( 'Popular', 'mayosis' ) ); ?>
 		};
 		var box = document.querySelector('.caw-esim');
@@ -399,11 +404,16 @@ function caw_esim_render_picker( $id ) {
 
 		function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; }); }
 		function norm(s) { return String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase(); }
+		function flag(c) { return '<img class="caw-esim-flag" src="' + esc(FLAGS + (c[4] || 'globe') + '.svg') + '" alt="" width="20" height="15" loading="lazy">'; }
 		function daysTxt(n) { return n + ' ' + (1 === n ? T.day : T.days); }
 
 		function matches(text) {
 			var t = norm(text).trim();
-			if (!t) return COUNTRIES.filter(function (c) { return TOP.indexOf(c[0]) > -1; }).sort(function (a, b) { return TOP.indexOf(a[0]) - TOP.indexOf(b[0]); });
+			if (!t) {
+				var top = COUNTRIES.filter(function (c) { return TOP.indexOf(c[0]) > -1; }).sort(function (a, b) { return TOP.indexOf(a[0]) - TOP.indexOf(b[0]); });
+				var more = COUNTRIES.filter(function (c) { return TOP.indexOf(c[0]) < 0; });
+				return top.concat(more.filter(function (c) { return !c[2]; }), more.filter(function (c) { return c[2]; }));
+			}
 			var starts = [], rest = [];
 			COUNTRIES.forEach(function (c) {
 				var n = norm(c[1]);
@@ -415,10 +425,10 @@ function caw_esim_render_picker( $id ) {
 		function renderList() {
 			var text = q.value, found = matches(text), html = '', group = null;
 			found.forEach(function (c, i) {
-				var g = !text.trim() ? T.popular : (c[2] ? T.regions : T.countries);
+				var g = TOP.indexOf(c[0]) > -1 ? T.popular : (c[2] ? T.regions : T.countries);
 				if (!text.trim() && g !== group) html += '<li class="caw-esim-grp" role="presentation">' + esc(g) + '</li>';
 				group = g;
-				html += '<li role="option" id="caw-esim-o' + i + '" data-i="' + i + '" aria-selected="' + (i === active) + '"' + (i === active ? ' class="is-active"' : '') + '>' + esc(c[1]) + (c[2] ? ' <small>' + esc(T.regions.replace(/s$/, '')) + '</small>' : '') + '</li>';
+				html += '<li role="option" id="caw-esim-o' + i + '" data-i="' + i + '" aria-selected="' + (i === active) + '"' + (i === active ? ' class="is-active"' : '') + '>' + flag(c) + esc(c[1]) + (c[2] ? ' <small>' + esc(T.regions.replace(/s$/, '')) + '</small>' : '') + '</li>';
 			});
 			list.innerHTML = html || '<li class="caw-esim-grp" role="presentation">' + esc(T.nores) + '</li>';
 			list._found = found;
@@ -489,7 +499,7 @@ function caw_esim_render_picker( $id ) {
 			chosen = k;
 			var p = plans.filter(function (x) { return x.k === k; })[0];
 			priceEl.textContent = '$' + p.price;
-			perEl.textContent = country[1] + ', ' + p.data + ', ' + daysTxt(p.days);
+			perEl.innerHTML = flag(country) + esc(country[1] + ', ' + p.data + ', ' + daysTxt(p.days));
 			row.hidden = false;
 			setCta(T.buy, true);
 			render();
