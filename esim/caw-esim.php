@@ -22,6 +22,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 define( 'CAW_ESIM_COST_MIN', 0.5 );
 define( 'CAW_ESIM_COST_MAX', 100.0 );
 define( 'CAW_ESIM_MAX_ROWS', 3000 ); // a bot can't grow the product without limit
+define( 'CAW_ESIM_MAX_COST', 450.0 ); // about $500 at the shop; dearer plans are manual orders via the contact page
 
 function caw_esim_is_store( $download_id ) {
 	return (bool) get_post_meta( $download_id, '_caw_esim', true );
@@ -83,7 +84,7 @@ function caw_esim_plan( $p ) {
 	$days = isset( $a['package_period_days'] ) ? (int) $a['package_period_days'] : 0;
 	$gb   = isset( $a['internet_gb'] ) ? (float) $a['internet_gb'] : 0.0;
 	$cost = isset( $p['price'] ) ? (float) $p['price'] : 0.0;
-	if ( 'esim' !== ( isset( $p['deliveryType'] ) ? $p['deliveryType'] : '' ) || empty( $p['quantity'] ) || $cost <= 0 || ! $days || ! in_array( $use, array( 'total', 'daily_limit_reduced' ), true ) ) {
+	if ( 'esim' !== ( isset( $p['deliveryType'] ) ? $p['deliveryType'] : '' ) || empty( $p['quantity'] ) || $cost <= 0 || $cost > CAW_ESIM_MAX_COST || ! $days || ! in_array( $use, array( 'total', 'daily_limit_reduced' ), true ) ) {
 		return null;
 	}
 	$daily = 'daily_limit_reduced' === $use;
@@ -128,7 +129,7 @@ function caw_esim_plan( $p ) {
 
 /** In-stock plans of one country, cheapest per data + days + speed tier. Empty array = none; null = supplier unreachable. */
 function caw_esim_plans( $slug ) {
-	$key   = 'caw_esim_p3_' . md5( $slug );
+	$key   = 'caw_esim_p4_' . md5( $slug );
 	$plans = get_transient( $key );
 	if ( is_array( $plans ) ) {
 		return $plans;
@@ -406,6 +407,7 @@ function caw_esim_render_picker( $id ) {
 		</div>
 		<div class="caw-esim-plans" aria-live="polite"></div>
 		<p class="caw-esim-note"><?php esc_html_e( 'Data only, no phone number. Your phone must support eSIM and be network-unlocked. To check, dial *#06#: if an EID number shows, it supports eSIM.', 'mayosis' ); ?></p>
+		<p class="caw-esim-info"><?php esc_html_e( 'Need a longer plan, like 6 months or 1 year?', 'mayosis' ); ?> <a href="<?php echo esc_url( home_url( '/contact/' ) ); ?>"><?php esc_html_e( 'Contact Crypto Awaz', 'mayosis' ); ?></a> <?php esc_html_e( 'and we\'ll arrange it for you.', 'mayosis' ); ?></p>
 		<div class="caw-pricerow" aria-live="polite" aria-atomic="true" hidden><span class="caw-price"></span><span class="caw-per"></span></div>
 		<button type="button" class="caw-cta caw-esim-buy" disabled><span class="caw-cta-label"><?php esc_html_e( 'Choose a destination', 'mayosis' ); ?></span></button>
 		<p class="caw-esim-msg" role="alert" hidden></p>
