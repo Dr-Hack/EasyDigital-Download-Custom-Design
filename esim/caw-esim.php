@@ -96,8 +96,13 @@ function caw_esim_plan( $p ) {
 	} else {
 		$data = caw_esim_gb( $gb );
 	}
-	$after = $daily && ! $open && $speed ? sprintf( __( 'then %d kbps', 'mayosis' ), $speed ) : '';
-	$note  = '';
+	$after = '';
+	if ( $daily && ! $open && $speed ) {
+		$after = $speed >= 1000 ? sprintf( __( 'then %s Mbps', 'mayosis' ), $speed / 1000 ) : sprintf( __( 'then %d kbps', 'mayosis' ), $speed );
+	}
+	// The supplier words this a dozen ways and in two languages. No plan in the catalogue forbids it.
+	$hotspot = (bool) preg_match( '/hot.?spot|tether|shar(e|ing)|distribut|раздава/iu', ( isset( $p['description'] ) ? $p['description'] : '' ) . ' ' . ( isset( $a['internet_description'] ) ? $a['internet_description'] : '' ) );
+	$note    = '';
 	if ( ! empty( $a['customer_notice'] ) ) {
 		// Supplier notices are Russian only. The one in use today says to install before arriving in Türkiye.
 		$note = __( 'Install this eSIM before you travel. It can\'t be set up after you arrive.', 'mayosis' );
@@ -107,8 +112,9 @@ function caw_esim_plan( $p ) {
 		'k'       => substr( md5( (string) $p['id'] ), 0, 12 ), // what the browser sees instead of the supplier's id
 		'data'    => $data,
 		'days'    => $days,
-		'label'   => $data . ', ' . $days_txt,
+		'label'   => $data . ', ' . $days_txt . ( $after ? ', ' . $after : '' ),
 		'after'   => $after,
+		'hotspot' => $hotspot,
 		'daily'   => $daily,
 		'gb'      => $open ? 9999 : $gb,
 		'speed'   => $speed,
@@ -119,9 +125,9 @@ function caw_esim_plan( $p ) {
 	);
 }
 
-/** In-stock plans of one country, cheapest per data + days. Empty array = none; null = supplier unreachable. */
+/** In-stock plans of one country, cheapest per data + days + speed tier. Empty array = none; null = supplier unreachable. */
 function caw_esim_plans( $slug ) {
-	$key   = 'caw_esim_p_' . md5( $slug );
+	$key   = 'caw_esim_p2_' . md5( $slug );
 	$plans = get_transient( $key );
 	if ( is_array( $plans ) ) {
 		return $plans;
@@ -139,8 +145,8 @@ function caw_esim_plans( $slug ) {
 				continue;
 			}
 			// The supplier lists one size several times, differing only in the speed after the daily limit:
-			// show the cheapest, and on a tie the faster.
-			$same = $plan['daily'] . '|' . $plan['gb'] . '|' . $plan['days'];
+			// keep the cheapest of the slow ones and the cheapest at 1 Mbps or more, and on a tie the faster.
+			$same = $plan['daily'] . '|' . $plan['gb'] . '|' . $plan['days'] . '|' . ( $plan['speed'] >= 1000 ? 'fast' : 'slow' );
 			$held = isset( $plans[ $same ] ) ? $plans[ $same ] : null;
 			if ( ! $held || $plan['cost'] < $held['cost'] || ( $plan['cost'] === $held['cost'] && $plan['speed'] > $held['speed'] ) ) {
 				$plans[ $same ] = $plan;
@@ -152,7 +158,7 @@ function caw_esim_plans( $slug ) {
 	}
 	$plans = array_values( $plans );
 	usort( $plans, function ( $a, $b ) {
-		return array( $a['days'], $a['gb'] ) <=> array( $b['days'], $b['gb'] );
+		return array( $a['days'], $a['gb'], $a['speed'] ) <=> array( $b['days'], $b['gb'], $b['speed'] );
 	} );
 	set_transient( $key, $plans, HOUR_IN_SECONDS );
 	return $plans;
@@ -297,6 +303,7 @@ function caw_esim_ajax_plans() {
 				'data'  => $p['data'],
 				'days'  => $p['days'],
 				'after' => $p['after'],
+				'hot'   => $p['hotspot'],
 				'daily' => $p['daily'],
 				'note'  => $p['note'],
 				'price' => number_format( $price, 2, '.', '' ),
@@ -392,7 +399,10 @@ function caw_esim_render_picker( $id ) {
 			fail: <?php echo wp_json_encode( __( 'Something went wrong. Please try again.', 'mayosis' ) ); ?>,
 			regions: <?php echo wp_json_encode( __( 'Regions', 'mayosis' ) ); ?>,
 			countries: <?php echo wp_json_encode( __( 'All countries', 'mayosis' ) ); ?>,
-			popular: <?php echo wp_json_encode( __( 'Popular', 'mayosis' ) ); ?>
+			popular: <?php echo wp_json_encode( __( 'Popular', 'mayosis' ) ); ?>,
+			hot: <?php echo wp_json_encode( __( 'Hotspot', 'mayosis' ) ); ?>,
+			hotall: <?php echo wp_json_encode( __( 'Hotspot allowed on all these plans: share data with your other devices.', 'mayosis' ) ); ?>,
+			cap: <?php echo wp_json_encode( __( 'Daily plans give you that much at full speed each day. After that the internet keeps working, but slowed to the speed shown until the next day starts. Around 500 kbps suits messages and maps, not video.', 'mayosis' ) ); ?>
 		};
 		var box = document.querySelector('.caw-esim');
 		if (!box) return;
@@ -484,11 +494,14 @@ function caw_esim_render_picker( $id ) {
 					show = daily.filter(function (p) { return p.days === dayFilter; });
 				}
 			}
+			var hotAll = show.every(function (p) { return p.hot; });
+			if ('daily' === tab) html += '<p class="caw-esim-info">' + esc(T.cap) + '</p>';
+			if (hotAll) html += '<p class="caw-esim-info">' + esc(T.hotall) + '</p>';
 			html += '<div class="caw-esim-grid" role="radiogroup" aria-label="' + esc(country[1]) + '">' + show.map(function (p) {
 				var on = chosen === p.k;
 				return '<button type="button" class="caw-esim-plan' + (on ? ' is-on' : '') + '" role="radio" aria-checked="' + on + '" data-k="' + esc(p.k) + '">'
 					+ '<span class="caw-esim-pdata">' + esc(p.data) + '</span>'
-					+ '<span class="caw-esim-pdays">' + esc(daysTxt(p.days)) + (p.after ? ', ' + esc(p.after) : '') + '</span>'
+					+ '<span class="caw-esim-pdays">' + esc(daysTxt(p.days)) + (p.after ? ', ' + esc(p.after) : '') + (!hotAll && p.hot ? ', ' + esc(T.hot) : '') + '</span>'
 					+ '<span class="caw-esim-pprice">$' + esc(p.price) + '</span></button>';
 			}).join('') + '</div>';
 			var cur = plans.filter(function (p) { return p.k === chosen; })[0];
@@ -499,7 +512,7 @@ function caw_esim_render_picker( $id ) {
 			chosen = k;
 			var p = plans.filter(function (x) { return x.k === k; })[0];
 			priceEl.textContent = '$' + p.price;
-			perEl.innerHTML = flag(country) + esc(country[1] + ', ' + p.data + ', ' + daysTxt(p.days));
+			perEl.innerHTML = flag(country) + esc(country[1] + ', ' + p.data + ', ' + daysTxt(p.days) + (p.after ? ', ' + p.after : ''));
 			row.hidden = false;
 			setCta(T.buy, true);
 			render();
