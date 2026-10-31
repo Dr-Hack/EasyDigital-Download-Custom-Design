@@ -146,7 +146,7 @@ function caw_fox_is_card_type( $type ) {
 
 /** Delivery types this file knows how to hand over; anything new stays off sale until it is added. */
 function caw_fox_supported_type( $type ) {
-	return in_array( $type, array( 'code', 'direct_topup', 'banking_card', 'banking_card_topup' ), true );
+	return in_array( $type, array( 'code', 'direct_topup', 'banking_card', 'banking_card_topup', 'esim' ), true );
 }
 
 /** Activated straight on the buyer's account (Telegram Premium, game top-ups) rather than handed over as a code. */
@@ -160,6 +160,8 @@ function caw_fox_delivery_label( $c ) {
 	$type = isset( $c['type'] ) ? $c['type'] : 'code';
 	if ( ! caw_fox_supported_type( $type ) ) {
 		$out = $type . ' (not supported yet)';
+	} elseif ( 'esim' === $type ) {
+		$out = 'eSIM (QR)';
 	} elseif ( caw_fox_is_card_type( $type ) ) {
 		$out = 'banking_card' === $type ? 'Virtual card' : 'Card top-up';
 	} elseif ( ! empty( $c['svc'] ) || 'direct_topup' === $type ) {
@@ -319,6 +321,10 @@ function caw_fox_reprice( $download_id, $costs, $exact = false ) {
  * Returns human-readable lines for options that changed price or availability.
  */
 function caw_fox_sync_download( $download_id, $exact = false ) {
+	if ( caw_esim_is_store( $download_id ) ) {
+		update_post_meta( $download_id, '_caw_fox_synced', time() ); // its plans refresh at add-to-cart and checkout
+		return array();
+	}
 	$map = caw_fox_map( $download_id );
 	if ( ! $map ) {
 		delete_post_meta( $download_id, '_caw_fox_cache' );
@@ -924,6 +930,7 @@ function caw_fox_apply_remote( $order, $item, $fo ) {
 		// A service may still return a code (Telegram: a backup to send the supplier's bot) — keep it.
 		caw_fox_set( $item->id, '_caw_fox_codes', caw_fox_encrypt( wp_json_encode( $codes ) ) );
 		caw_fox_set( $item->id, '_caw_fox_service', $is_service ? 1 : 0 );
+		caw_fox_set( $item->id, '_caw_fox_esim', 'esim' === $type ? 1 : 0 );
 		if ( ! empty( $fi['externalId'] ) ) {
 			caw_fox_set( $item->id, '_caw_fox_external_id', sanitize_text_field( $fi['externalId'] ) ); // eSIM ICCID
 		}
@@ -1059,6 +1066,8 @@ function caw_fox_items_html( $order, $for_email = false ) {
 		if ( 'delivered' === $status ) {
 			if ( caw_fox_item_card( $item->id ) ) {
 				$html .= caw_fox_card_html( $item, $for_email );
+			} elseif ( caw_fox_meta( $item->id, '_caw_fox_esim' ) ) {
+				$html .= caw_esim_html( $item, $for_email );
 			} elseif ( caw_fox_meta( $item->id, '_caw_fox_service' ) ) {
 				$html .= '<p class="caw-fox-direct"' . $st( 'margin:0 0 8px;font-size:15px' ) . '>&#9989; ' . esc_html__( 'Activated directly on the account above. Nothing to redeem.', 'mayosis' ) . '</p>';
 				$refs  = caw_fox_codes( $item->id );
@@ -1089,7 +1098,7 @@ function caw_fox_items_html( $order, $for_email = false ) {
 			}
 			$guide = caw_fox_guide( $item );
 			if ( $guide ) {
-				$title = caw_fox_item_card( $item->id ) ? esc_html__( 'How to use your card', 'mayosis' ) : ( caw_fox_meta( $item->id, '_caw_fox_service' ) ? esc_html__( 'Good to know', 'mayosis' ) : esc_html__( 'How to redeem', 'mayosis' ) );
+				$title = caw_fox_item_card( $item->id ) ? esc_html__( 'How to use your card', 'mayosis' ) : ( caw_fox_meta( $item->id, '_caw_fox_service' ) || caw_fox_meta( $item->id, '_caw_fox_esim' ) ? esc_html__( 'Good to know', 'mayosis' ) : esc_html__( 'How to redeem', 'mayosis' ) );
 				$html .= $for_email
 					? '<div' . $st( 'margin-top:16px;padding-top:12px;border-top:1px solid #e3e8f0;font-size:14px;line-height:1.6;overflow-wrap:anywhere;word-break:break-word' ) . '><p style="margin:0 0 6px;font-size:16px;font-weight:bold">' . $title . '</p>' . $guide . '</div>'
 					: '<details class="caw-fox-guide" open data-caw-collapse><summary>' . $title . '</summary><div class="caw-fox-guide-body">' . $guide . '</div></details>';
@@ -1100,9 +1109,10 @@ function caw_fox_items_html( $order, $for_email = false ) {
 			$html .= '<p>' . esc_html__( 'We could not deliver this automatically. Our team has been notified and will send it to you or refund you shortly.', 'mayosis' ) . '</p>';
 		} else {
 			$pending = true;
-			$html   .= '<p class="caw-fox-wait"><span class="caw-fox-spinner" aria-hidden="true"></span>' . esc_html( caw_fox_is_direct( $item->product_id, $item->price_id )
+			$wait    = caw_fox_is_direct( $item->product_id, $item->price_id )
 				? __( 'Activating on your account… this usually takes a few minutes.', 'mayosis' )
-				: __( 'Preparing your code… this usually takes under a minute.', 'mayosis' ) ) . '</p>';
+				: ( 'esim' === caw_fox_type( $item->product_id, $item->price_id ) ? __( 'Preparing your eSIM… this usually takes under a minute.', 'mayosis' ) : __( 'Preparing your code… this usually takes under a minute.', 'mayosis' ) );
+			$html   .= '<p class="caw-fox-wait"><span class="caw-fox-spinner" aria-hidden="true"></span>' . esc_html( $wait ) . '</p>';
 		}
 		$html .= '</div>';
 	}
@@ -1133,13 +1143,15 @@ function caw_fox_send_codes_email( $order ) {
 	$all_direct = ! array_filter( $fresh, function ( $item ) {
 		return ! caw_fox_meta( $item->id, '_caw_fox_service' );
 	} );
-	$subject = ( caw_fox_is_mock() ? '[TEST] ' : '' ) . sprintf( $is_card ? __( 'Your card for order #%s is ready', 'mayosis' ) : ( $all_direct ? __( 'Your order #%s has been activated', 'mayosis' ) : __( 'Your code for order #%s is ready', 'mayosis' ) ), $order->get_number() );
+	$files   = caw_esim_email_files( $fresh ); // the QR as an attachment too: some mail clients block the image link
+	$subject = ( caw_fox_is_mock() ? '[TEST] ' : '' ) . sprintf( $is_card ? __( 'Your card for order #%s is ready', 'mayosis' ) : ( $all_direct ? __( 'Your order #%s has been activated', 'mayosis' ) : ( $files ? __( 'Your eSIM for order #%s is ready', 'mayosis' ) : __( 'Your code for order #%s is ready', 'mayosis' ) ) ), $order->get_number() );
 	EDD()->emails->__set( 'heading', __( 'Your order is ready', 'mayosis' ) );
-	if ( EDD()->emails->send( $order->email, $subject, $msg ) ) {
+	if ( EDD()->emails->send( $order->email, $subject, $msg, $files ) ) {
 		foreach ( $fresh as $item ) {
 			caw_fox_set( $item->id, '_caw_fox_emailed', time() );
 		}
 	}
+	array_map( 'wp_delete_file', $files );
 }
 
 /**
@@ -1158,6 +1170,8 @@ function caw_fox_delivery_intro( $order_id ) {
 			$kinds['files'] = true;
 		} elseif ( caw_fox_is_card_type( caw_fox_type( $item->product_id, $item->price_id ) ) ) {
 			$kinds['card'] = true;
+		} elseif ( 'esim' === caw_fox_type( $item->product_id, $item->price_id ) ) {
+			$kinds['esim'] = true;
 		} elseif ( caw_fox_is_direct( $item->product_id, $item->price_id ) ) {
 			$kinds['direct'] = true;
 		} else {
@@ -1172,6 +1186,9 @@ function caw_fox_delivery_intro( $order_id ) {
 	}
 	if ( isset( $kinds['code'] ) ) {
 		$lines[] = sprintf( __( 'Your code will be emailed to you separately within a few minutes. It is also shown on your %1$sorder page%2$s, with the steps to redeem it.', 'mayosis' ), $page, '</a>' );
+	}
+	if ( isset( $kinds['esim'] ) ) {
+		$lines[] = sprintf( __( 'Your eSIM QR code will be emailed to you separately within a few minutes. It is also shown on your %1$sorder page%2$s, with the steps to install it.', 'mayosis' ), $page, '</a>' );
 	}
 	if ( isset( $kinds['direct'] ) ) {
 		$lines[] = sprintf( __( 'Your purchase is activated directly on the account you entered at checkout, usually within a few minutes. We will email you when it is done, and you can follow it on your %1$sorder page%2$s.', 'mayosis' ), $page, '</a>' );
@@ -1238,10 +1255,13 @@ function caw_fox_receipt_box( $order_id ) {
 	$cards = array_filter( $items, function ( $item ) {
 		return caw_fox_is_card_type( caw_fox_type( $item->product_id, $item->price_id ) );
 	} );
+	$esims = array_filter( $items, function ( $item ) {
+		return 'esim' === caw_fox_type( $item->product_id, $item->price_id );
+	} );
 	$url  = add_query_arg( array( 'action' => 'caw_fox_codes', 'order' => (int) $order_id ), admin_url( 'admin-ajax.php' ) );
 	?>
 	<section class="caw-fox-receipt" id="caw-sec-card" data-url="<?php echo esc_url( $url ); ?>" data-card-url="<?php echo esc_url( admin_url( 'admin-ajax.php?action=caw_fox_card' ) ); ?>" data-login="<?php echo esc_url( wp_login_url( edd_get_receipt_page_uri( $order_id ) ) ); ?>" aria-live="polite">
-		<h2><?php echo esc_html( count( $cards ) === count( $items ) ? __( 'Your card', 'mayosis' ) : __( 'Your codes', 'mayosis' ) ); ?></h2>
+		<h2><?php echo esc_html( count( $cards ) === count( $items ) ? __( 'Your card', 'mayosis' ) : ( count( $esims ) === count( $items ) ? __( 'Your eSIM', 'mayosis' ) : __( 'Your codes', 'mayosis' ) ) ); ?></h2>
 		<div class="caw-fox-body"><p class="caw-fox-wait"><?php esc_html_e( 'Loading…', 'mayosis' ); ?></p></div>
 		<noscript><p><?php esc_html_e( 'Please turn on JavaScript to see this. If you can\'t, contact us and we\'ll help.', 'mayosis' ); ?></p></noscript>
 	</section>
@@ -1458,9 +1478,12 @@ function caw_fox_receipt_open( $order ) {
 			array( 'guide', __( 'How to use', 'mayosis' ), '.caw-fox-guide' ),
 		);
 	} else {
+		$all_esim = ! array_filter( caw_fox_order_items( $order->id ), function ( $item ) {
+			return 'esim' !== caw_fox_type( $item->product_id, $item->price_id );
+		} );
 		$nav = array(
-			array( 'card', __( 'Your code', 'mayosis' ), '#caw-sec-card' ),
-			array( 'guide', __( 'How to redeem', 'mayosis' ), '.caw-fox-guide' ),
+			array( 'card', $all_esim ? __( 'Your eSIM', 'mayosis' ) : __( 'Your code', 'mayosis' ), '#caw-sec-card' ),
+			array( 'guide', $all_esim ? __( 'Install by hand', 'mayosis' ) : __( 'How to redeem', 'mayosis' ), '.caw-fox-guide' ),
 		);
 	}
 	$details = $files ? __( 'Downloads & order details', 'mayosis' ) : __( 'Order details', 'mayosis' );
@@ -1788,6 +1811,10 @@ add_action( 'add_meta_boxes_download', function () {
 } );
 
 function caw_fox_render_product_box( $post ) {
+	if ( caw_esim_is_store( $post->ID ) ) {
+		echo '<p>This product is the eSIM store: its options are created by themselves, see the eSIM store box.</p>';
+		return; // no nonce here, so a save leaves its mapping alone
+	}
 	$map    = caw_fox_map( $post->ID );
 	$prices = edd_has_variable_prices( $post->ID ) ? edd_get_variable_prices( $post->ID ) : array( 0 => array( 'name' => 'Price', 'amount' => edd_get_download_price( $post->ID ) ) );
 	wp_nonce_field( 'caw_fox_product', 'caw_fox_nonce' );

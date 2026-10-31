@@ -80,6 +80,12 @@ while ( have_posts() ) :
                     <?php echo caw_sales_badge_html( $id ); // phpcs:ignore ?>
                 </div>
 
+                <?php if ( caw_esim_is_store( $id ) ) : ?>
+
+                    <?php caw_esim_render_picker( $id ); ?>
+
+                <?php else : ?>
+
                 <?php if ( ! empty( $model['variable'] ) ) : ?>
 
                     <?php
@@ -247,6 +253,8 @@ while ( have_posts() ) :
                         &#9654; <?php echo esc_html( $preview_text ); ?>
                     </a>
                 <?php endif; ?>
+
+                <?php endif; // eSIM store ?>
 
                 <div class="caw-trust">
                     <div class="caw-crypto">

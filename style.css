@@ -2778,3 +2778,108 @@ body.sp-night-mode-on .caw-empty-cart .caw-ec-cats a:hover { color: #8cc4f5 !imp
 body.sp-night-mode-on .caw-empty-cart a.caw-ec-card,
 body.sp-night-mode-on .caw-empty-cart a.caw-ec-card:visited { color: #f2f2f2 !important; }
 body.sp-night-mode-on .caw-empty-cart .caw-ec-price { color: #9fb0d0 !important; }
+
+/* =========================================================================
+   eSIM store (caw-esim.php) — country search, plans, QR on the receipt
+   ========================================================================= */
+.caw-esim-where { position: relative; }
+.caw-esim-q {
+	width: 100%;
+	padding: 12px 14px;
+	border: 1px solid #d3dbe7;
+	border-radius: 10px;
+	background: #fff;
+	color: #1d2733;
+	font-size: 16px; /* under 16px iOS zooms the page on focus */
+}
+.caw-esim-q:focus-visible { outline: 2px solid #1e73be; outline-offset: 1px; }
+.caw-esim-list {
+	position: absolute;
+	z-index: 30;
+	left: 0;
+	right: 0;
+	max-height: 280px;
+	margin: 4px 0 0;
+	padding: 4px;
+	overflow-y: auto;
+	list-style: none;
+	border: 1px solid #d3dbe7;
+	border-radius: 10px;
+	background: #fff;
+	box-shadow: 0 8px 24px rgba(16, 32, 64, .14);
+}
+.caw-esim-list li[role="option"] { padding: 9px 10px; border-radius: 7px; color: #1d2733; cursor: pointer; }
+.caw-esim-list li[role="option"]:hover,
+.caw-esim-list li.is-active { background: #eaf3fb; }
+.caw-esim-list small { margin-left: 4px; color: #5a6b88; }
+.caw-esim-grp { padding: 8px 10px 4px; color: #5a6b88; font-size: 12px; }
+.caw-esim-tabs { display: flex; gap: 6px; margin: 14px 0 10px; }
+.caw-esim-tabs button,
+.caw-esim-days button {
+	padding: 8px 14px;
+	border: 1px solid #d3dbe7;
+	border-radius: 999px;
+	background: transparent;
+	color: #1d2733;
+	font-size: 14px;
+	cursor: pointer;
+	transition: background-color .15s, color .15s, border-color .15s;
+}
+.caw-esim-tabs button[aria-selected="true"],
+.caw-esim-days button[aria-pressed="true"] { border-color: #1e73be; background: #1e73be; color: #fff; }
+.caw-esim-days { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+.caw-esim-days button { padding: 5px 11px; font-size: 13px; }
+.caw-esim-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+.caw-esim-tabs + .caw-esim-grid,
+.caw-esim-days + .caw-esim-grid { margin-top: 0; }
+.caw-esim-plan {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	min-width: 0;
+	padding: 11px 12px;
+	border: 1px solid #d3dbe7;
+	border-radius: 10px;
+	background: transparent;
+	color: #1d2733;
+	text-align: left;
+	cursor: pointer;
+	transition: border-color .15s, box-shadow .15s;
+}
+.caw-esim-plan:hover { border-color: #1e73be; }
+.caw-esim-plan.is-on { border-color: #1e73be; box-shadow: inset 0 0 0 1px #1e73be; }
+.caw-esim-pdata { font-weight: 700; font-size: 16px; }
+.caw-esim-pdays { color: #5a6b88; font-size: 13px; }
+.caw-esim-pprice { margin-top: 4px; font-weight: 700; color: #1e73be; }
+.caw-esim-note { margin: 12px 0; color: #5a6b88; font-size: 13px; line-height: 1.5; }
+.caw-esim-warn { margin: 10px 0; padding: 9px 12px; border-left: 3px solid #e0a100; background: #fff8e6; color: #1d2733; font-size: 14px; }
+.caw-esim-msg { margin: 10px 0; color: #b32d2e; }
+.caw-esim .caw-pricerow[hidden] { display: none; }
+.caw-esim-qr { width: 240px; max-width: 100%; margin: 12px auto; }
+.caw-esim-qr svg { display: block; width: 100%; height: auto; border-radius: 8px; }
+.caw-esim-links { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin: 0 0 12px; }
+.caw-esim-links a { padding: 10px 16px; border-radius: 8px; background: #1e73be; color: #fff; font-weight: 700; text-decoration: none; }
+.caw-esim-steps { margin: 0 0 12px; padding-left: 20px; line-height: 1.6; }
+body.sp-night-mode-on .caw-esim-q,
+body.sp-night-mode-on .caw-esim-list { border-color: #33415c; background: #182235; color: #e8eef7; }
+body.sp-night-mode-on .caw-esim-list li[role="option"],
+body.sp-night-mode-on .caw-esim-tabs button:not([aria-selected="true"]),
+body.sp-night-mode-on .caw-esim-days button:not([aria-pressed="true"]),
+body.sp-night-mode-on .caw-esim-plan { border-color: #33415c; color: #e8eef7; }
+body.sp-night-mode-on .caw-esim-list li[role="option"]:hover,
+body.sp-night-mode-on .caw-esim-list li.is-active { background: #24324d; }
+body.sp-night-mode-on .caw-esim-plan.is-on,
+body.sp-night-mode-on .caw-esim-plan:hover { border-color: #5aa5e6; }
+body.sp-night-mode-on .caw-esim-plan.is-on { box-shadow: inset 0 0 0 1px #5aa5e6; }
+body.sp-night-mode-on .caw-esim-pprice { color: #7dbbf0; }
+body.sp-night-mode-on .caw-esim-pdays,
+body.sp-night-mode-on .caw-esim-note,
+body.sp-night-mode-on .caw-esim-grp,
+body.sp-night-mode-on .caw-esim-list small { color: #9fb0c9; }
+body.sp-night-mode-on .caw-esim-warn { background: #2e2a18; color: #f1e6c4; }
+.caw-esim-links a,
+.caw-esim-links a:visited,
+.caw-esim-links a:hover,
+body.sp-night-mode-on .caw-esim-links a,
+body.sp-night-mode-on .caw-esim-links a:visited,
+body.sp-night-mode-on .caw-esim-links a:hover { color: #fff !important; } /* the theme's night link colour is blue too */
