@@ -27,6 +27,7 @@ require_once get_stylesheet_directory() . '/caw-edd-reviews-guard.php';
 
 // Foxreload wholesale API — automatic gift-code fulfilment for mapped products.
 require_once get_stylesheet_directory() . '/caw-foxreload.php';
+require_once get_stylesheet_directory() . '/caw-aurpay-return.php';
 require_once get_stylesheet_directory() . '/esim/caw-qr.php';
 require_once get_stylesheet_directory() . '/esim/caw-esim.php';
 

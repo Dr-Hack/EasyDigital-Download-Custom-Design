@@ -2887,3 +2887,39 @@ body.sp-night-mode-on .caw-esim-note { border-color: #5ba4e6; color: #dbe5f3; }
 body.sp-night-mode-on .caw-esim-links a,
 body.sp-night-mode-on .caw-esim-links a:visited,
 body.sp-night-mode-on .caw-esim-links a:hover { color: #fff !important; } /* the theme's night link colour is blue too */
+
+/* =============================================================================
+   Aurpay waiting notice on the receipt (caw-aurpay-return.php)
+   ============================================================================= */
+.caw-aurpay-wait {
+    --caw-aw-card: #f5f8fc;
+    --caw-aw-line: #e3e8f0;
+    --caw-aw-muted: #5a6b88;
+    margin: 0 0 24px;
+    padding: 16px 18px;
+    border: 1px solid var(--caw-aw-line);
+    border-left: 3px solid #1e73be;
+    border-radius: 10px;
+    background: var(--caw-aw-card);
+}
+body.sp-night-mode-on .caw-aurpay-wait {
+    --caw-aw-card: #192237;
+    --caw-aw-line: #28375a;
+    --caw-aw-muted: #9fb0d0;
+}
+.caw-aurpay-wait h2 { display: flex; align-items: center; gap: 10px; font-size: 20px; margin: 0 0 8px; }
+.caw-aurpay-wait p { margin: 0 0 8px; }
+.caw-aurpay-wait .caw-aurpay-alt { margin: 0; font-size: 14px; color: var(--caw-aw-muted); }
+.caw-aurpay-wait a { color: #1e73be !important; }
+body.sp-night-mode-on .caw-aurpay-wait a { color: #7fbcff !important; } /* the theme's night link colour is purple on prod */
+.caw-aurpay-spin {
+    flex: none;
+    width: 18px;
+    height: 18px;
+    border: 2px solid var(--caw-aw-line);
+    border-top-color: #1e73be;
+    border-radius: 50%;
+    animation: caw-aw-spin .9s linear infinite;
+}
+@keyframes caw-aw-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .caw-aurpay-spin { animation: none; } }
