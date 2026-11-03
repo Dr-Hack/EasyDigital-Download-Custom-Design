@@ -734,12 +734,16 @@ add_action( 'edd_built_order', function ( $order_id, $order_data ) {
 
 /**
  * Order items that are Foxreload products. EDD flips item statuses to "complete" only after
- * edd_complete_purchase has run, so the completion hook asks with $only_complete = false.
+ * edd_complete_purchase has run, so the completion hook asks with $only_complete = false. A pending
+ * item on a complete order is that same gap (the order emails can hold it open for seconds), and a
+ * receipt loaded inside it must still show the delivery box.
  */
 function caw_fox_order_items( $order_id, $only_complete = true ) {
-	$out = array();
+	$out   = array();
+	$order = $only_complete ? edd_get_order( $order_id ) : null;
+	$ok    = ( $order && 'complete' === $order->status ) ? array( 'complete', 'pending' ) : array( 'complete' );
 	foreach ( edd_get_order_items( array( 'order_id' => $order_id, 'number' => 100 ) ) as $item ) {
-		if ( ( ! $only_complete || 'complete' === $item->status ) && caw_fox_item_id( $item->product_id, $item->price_id ) ) {
+		if ( ( ! $only_complete || in_array( $item->status, $ok, true ) ) && caw_fox_item_id( $item->product_id, $item->price_id ) ) {
 			$out[] = $item;
 		}
 	}

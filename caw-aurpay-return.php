@@ -75,7 +75,13 @@ function caw_aurpay_status() {
 	if ( ! $key || ! edd_can_view_receipt( $key ) ) {
 		wp_send_json_error( null, 403 );
 	}
-	$order = edd_get_order_by( 'payment_key', $key );
+	$order  = edd_get_order_by( 'payment_key', $key );
+	$status = $order ? $order->status : '';
+	// EDD marks the order complete a few seconds before its items; reloading in that gap shows
+	// "– Pending" on the receipt, so wait until no item is pending.
+	if ( 'complete' === $status && edd_count_order_items( array( 'order_id' => $order->id, 'status' => 'pending' ) ) ) {
+		$status = 'pending';
+	}
 	nocache_headers();
-	wp_send_json_success( array( 'status' => $order ? $order->status : '' ) );
+	wp_send_json_success( array( 'status' => $status ) );
 }
