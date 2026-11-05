@@ -1947,6 +1947,21 @@ function caw_trustpilot_afs_send_trigger( $order_id, $order, $customer ) {
 }
 
 /* =============================================================================
+   SEO — PRODUCT JSON-LD: SHORT BRAND TYPE
+
+   EDD Pro writes the Product's brand as `"@type": "https://schema.org/Brand"`.
+   Valid JSON-LD, but Google's examples and validators use the short "Brand",
+   which the owner asked for (Grok / Web Guru, 2026-11-05). Every product.
+   ============================================================================= */
+
+add_filter( 'edd_generate_download_structured_data', function ( $data ) {
+	if ( isset( $data['brand'] ) && is_array( $data['brand'] ) ) {
+		$data['brand']['@type'] = 'Brand';
+	}
+	return $data;
+}, 20 );
+
+/* =============================================================================
    SEO — KEEP TRANSACTIONAL AND PER-USER PAGES OUT OF SEARCH
 
    Checkout, the purchase confirmation, the invoice, the profile editor, the
