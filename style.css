@@ -2678,6 +2678,47 @@ body.sp-night-mode-on .caw-fox-resume { color: #5aa6ea !important; border-color:
 .caw-fox-tx strong { text-align: right; white-space: nowrap; }
 .caw-fox-tx small { grid-column: 1 / -1; font-size: 12px; color: var(--caw-fox-muted); }
 .caw-fox-tx .is-declined .caw-fox-tx-s { color: #c0392b; }
+/* Billing address the card is registered to (caw_fox_billing_html) */
+.caw-fox-bill { max-width: 380px; box-sizing: border-box; }
+.caw-fox-bill[open] { padding-bottom: 14px; }
+.caw-fox-bill-note { margin: 0 0 10px; font-size: 13px; line-height: 1.5; color: var(--caw-fox-muted); }
+.caw-fox-bill dl { margin: 0 0 12px; }
+.caw-fox-bill dl > div { padding: 6px 0; border-top: 1px solid var(--caw-fox-line); }
+.caw-fox-bill dt { margin: 0; font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--caw-fox-muted); }
+.caw-fox-bill dd { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0; }
+.caw-fox-bill dd span { min-width: 0; font-family: Consolas, Menlo, monospace; font-size: 15px; overflow-wrap: anywhere; }
+.caw-fox-bill-copy,
+.caw-fox-bill-all {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border: 1px solid var(--caw-fox-line);
+    border-radius: 8px;
+    background: var(--caw-fox-code);
+    color: #1e73be;
+    cursor: pointer;
+}
+.caw-fox-bill-copy { flex: 0 0 auto; width: 40px; height: 40px; padding: 0; }
+.caw-fox-bill-all { width: 100%; min-height: 44px; padding: 0 14px; font-size: 14px; font-weight: 600; }
+.caw-fox-bill-copy:hover,
+.caw-fox-bill-all:hover { border-color: #1e73be; }
+.caw-fox-bill-copy.is-copied,
+.caw-fox-bill-all.is-copied { background: #1f9d55; border-color: #1f9d55; color: #fff; }
+.caw-fox-bill-copy.is-failed,
+.caw-fox-bill-all.is-failed { background: #c0392b; border-color: #c0392b; color: #fff; }
+body.sp-night-mode-on .caw-fox-bill-copy,
+body.sp-night-mode-on .caw-fox-bill-copy *,
+body.sp-night-mode-on .caw-fox-bill-all,
+body.sp-night-mode-on .caw-fox-bill-all * { color: #5aa6ea !important; }
+body.sp-night-mode-on .caw-fox-bill-copy.is-copied,
+body.sp-night-mode-on .caw-fox-bill-copy.is-copied *,
+body.sp-night-mode-on .caw-fox-bill-all.is-copied,
+body.sp-night-mode-on .caw-fox-bill-all.is-copied *,
+body.sp-night-mode-on .caw-fox-bill-copy.is-failed,
+body.sp-night-mode-on .caw-fox-bill-copy.is-failed *,
+body.sp-night-mode-on .caw-fox-bill-all.is-failed,
+body.sp-night-mode-on .caw-fox-bill-all.is-failed * { color: #fff !important; }
 @media (max-width: 380px) {
     .caw-fox-vcard-face { padding-left: 14px; padding-right: 10px; }
     .caw-fox-vcard-meta { gap: 12px; }
