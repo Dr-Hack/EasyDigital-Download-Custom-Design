@@ -1669,7 +1669,8 @@ function caw_fox_billing_address( $item_id ) {
 	return apply_filters( 'caw_fox_billing_address', isset( $known[ $provider ] ) ? $known[ $provider ] : array(), $provider, $item_id );
 }
 
-function caw_fox_billing_html( $item, $for_email ) {
+/** Receipt only: the email never mentions the address, it points buyers to the receipt for every card detail. */
+function caw_fox_billing_html( $item ) {
 	$a = caw_fox_billing_address( $item->id );
 	if ( ! $a ) {
 		return '';
@@ -1682,14 +1683,6 @@ function caw_fox_billing_html( $item, $for_email ) {
 		'country' => __( 'Country', 'mayosis' ),
 	);
 	$note = __( 'When a shop asks for the cardholder or billing address, enter this one, not your home address. Some shops check it against the address the card is registered to.', 'mayosis' );
-	if ( $for_email ) {
-		$rows = '';
-		foreach ( $labels as $k => $l ) {
-			$rows .= '<tr><td style="padding:3px 12px 3px 0;font-size:13px;color:#5a6b88;white-space:nowrap">' . esc_html( $l ) . '</td><td style="padding:3px 0;font-family:Consolas,Menlo,monospace;font-size:15px;color:#1d2733">' . esc_html( $a[ $k ] ) . '</td></tr>';
-		}
-		return '<div style="margin:12px 0;padding:14px;border:1px solid #e3e8f0;border-radius:10px;background:#ffffff"><p style="margin:0 0 6px;font-size:15px;font-weight:bold">' . esc_html__( 'Billing address for your card', 'mayosis' ) . '</p>'
-			. '<table role="presentation" style="border-collapse:collapse">' . $rows . '</table><p style="margin:8px 0 0;font-size:13px;color:#5a6b88">' . esc_html( $note ) . '</p></div>';
-	}
 	$copy = function ( $text, $label ) {
 		return '<button type="button" class="caw-fox-bill-copy" data-copy-text="' . esc_attr( $text ) . '" aria-label="' . esc_attr( $label ) . '"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button>';
 	};
@@ -1712,7 +1705,7 @@ function caw_fox_card_html( $item, $for_email ) {
 			/* translators: %s: last 4 digits */
 			? sprintf( __( 'Your renewal has been added to your card •••• %s.', 'mayosis' ), $last4 )
 			: sprintf( __( 'Your virtual Visa card •••• %s is ready. For your security, the card number, CVV and bank verification codes are shown only on your order receipt. Log in to see them.', 'mayosis' ), $last4 );
-		return '<p style="margin:12px 0;padding:14px;border:2px dotted #1e73be;border-radius:10px;background:#ffffff;font-size:15px">' . esc_html( $text ) . '</p>' . caw_fox_billing_html( $item, true );
+		return '<p style="margin:12px 0;padding:14px;border:2px dotted #1e73be;border-radius:10px;background:#ffffff;font-size:15px">' . esc_html( $text ) . '</p>';
 	}
 	// Details sit masked on the card face; Show fetches them live and they mask again after 60s.
 	$mask = '•••• •••• •••• ' . ( $last4 ?: '????' );
@@ -1739,7 +1732,7 @@ function caw_fox_card_html( $item, $for_email ) {
 	if ( $topup ) {
 		$html .= '<p class="caw-fox-for">' . esc_html__( 'Your renewal has been added to this card.', 'mayosis' ) . '</p>';
 	}
-	$html .= caw_fox_billing_html( $item, false );
+	$html .= caw_fox_billing_html( $item );
 	$html .= '<div class="caw-fox-balrow"><span>' . esc_html__( 'Balance', 'mayosis' ) . ' <strong class="caw-fox-bal">…</strong></span>'
 		. '<a class="caw-fox-recharge" href="' . esc_url( $renew ) . '" target="_blank" rel="noopener">' . esc_html__( 'Recharge your card', 'mayosis' ) . ' ↗</a></div>';
 	$html .= '<h4 class="caw-fox-label caw-fox-sec-code">' . esc_html__( 'Bank verification code', 'mayosis' ) . '</h4><div class="caw-fox-3ds-body"><p class="caw-fox-wait"><span class="caw-fox-spinner" aria-hidden="true"></span>' . esc_html__( 'Loading…', 'mayosis' ) . '</p></div>';
