@@ -2643,7 +2643,8 @@ body.sp-night-mode-on .caw-rcpt-nav a.is-active { color: #fff !important; }
 .caw-fox-pass code { margin-left: auto; padding: 0; background: none; border: 0; font-size: 16px; font-weight: 700; }
 .caw-fox-pass .caw-fox-ic { color: #1e73be; }
 body.sp-night-mode-on .caw-fox-pass .caw-fox-ic { color: #5aa6ea !important; }
-.caw-fox-passnote { max-width: 380px; margin: 0 0 8px; font-size: 13px; line-height: 1.5; color: var(--caw-fox-muted); }
+.caw-fox-passnote { max-width: 380px; margin: 0 0 8px; font-size: 12px; line-height: 1.45; color: var(--caw-fox-muted); }
+body.sp-night-mode-on .caw-fox-passnote { color: var(--caw-fox-muted) !important; }
 .caw-fox-vcard.is-open .caw-fox-passnote { display: none; }
 .caw-fox-hint { display: none; margin: 0 0 8px; font-size: 12px; color: var(--caw-fox-muted); }
 .caw-fox-vcard.is-open .caw-fox-hint { display: block; }
@@ -2684,15 +2685,26 @@ body.sp-night-mode-on .caw-fox-resume { color: #5aa6ea !important; border-color:
 .caw-fox-tx strong { text-align: right; white-space: nowrap; }
 .caw-fox-tx small { grid-column: 1 / -1; font-size: 12px; color: var(--caw-fox-muted); }
 .caw-fox-tx .is-declined .caw-fox-tx-s { color: #c0392b; }
-/* Billing address the card is registered to (caw_fox_billing_html) */
-.caw-fox-bill { max-width: 380px; box-sizing: border-box; }
-.caw-fox-bill[open] { padding-bottom: 14px; }
-.caw-fox-bill-note { margin: 0 0 10px; font-size: 13px; line-height: 1.5; color: var(--caw-fox-muted); }
-.caw-fox-bill dl { margin: 0 0 12px; }
-.caw-fox-bill dl > div { padding: 6px 0; border-top: 1px solid var(--caw-fox-line); }
+/* Billing address the card is registered to (caw_fox_billing_html): closed box above "Balance and activity" */
+.caw-fox-bill { margin: 0 0 18px; padding: 0 14px; border: 1px solid var(--caw-fox-line); border-radius: 12px; background: var(--caw-fox-card); }
+.caw-fox-bill[open] { padding-bottom: 12px; }
+.caw-fox-bill > summary { display: flex; align-items: center; justify-content: space-between; min-height: 52px; cursor: pointer; font-size: 16px; font-weight: 700; list-style: none; }
+.caw-fox-bill > summary::-webkit-details-marker { display: none; }
+.caw-fox-bill > summary::after { content: "\25BE"; font-size: 14px; transition: transform .2s; }
+.caw-fox-bill[open] > summary::after { transform: rotate(180deg); }
+@media (prefers-reduced-motion: reduce) { .caw-fox-bill > summary::after { transition: none; } }
+.caw-fox-bill-note { margin: 0 0 6px; font-size: 13px; line-height: 1.45; color: var(--caw-fox-muted); }
+.caw-fox-bill dl { margin: 0 0 10px; }
+.caw-fox-bill dl > div { display: grid; grid-template-columns: 96px minmax(0, 1fr); align-items: center; gap: 0 12px; padding: 2px 0; border-top: 1px solid var(--caw-fox-line); }
 .caw-fox-bill dt { margin: 0; font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--caw-fox-muted); }
-.caw-fox-bill dd { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0; }
+.caw-fox-bill dd { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0; line-height: 1.3; }
 .caw-fox-bill dd span { min-width: 0; font-family: Consolas, Menlo, monospace; font-size: 15px; overflow-wrap: anywhere; }
+body.sp-night-mode-on .caw-fox-bill dt,
+body.sp-night-mode-on .caw-fox-bill-note { color: var(--caw-fox-muted) !important; }
+@media (max-width: 479px) {
+    .caw-fox-bill dl > div { grid-template-columns: minmax(0, 1fr); padding: 4px 0 2px; }
+    .caw-fox-bill dt { line-height: 1.2; }
+}
 .caw-fox-bill-copy,
 .caw-fox-bill-all {
     display: inline-flex;
@@ -2705,8 +2717,8 @@ body.sp-night-mode-on .caw-fox-resume { color: #5aa6ea !important; border-color:
     color: #1e73be;
     cursor: pointer;
 }
-.caw-fox-bill-copy { flex: 0 0 auto; width: 40px; height: 40px; padding: 0; }
-.caw-fox-bill-all { width: 100%; min-height: 44px; padding: 0 14px; font-size: 14px; font-weight: 600; }
+.caw-fox-bill-copy { flex: 0 0 auto; width: 36px; height: 36px; padding: 0; }
+.caw-fox-bill-all { min-height: 40px; padding: 0 14px; font-size: 14px; font-weight: 600; }
 .caw-fox-bill-copy:hover,
 .caw-fox-bill-all:hover { border-color: #1e73be; }
 .caw-fox-bill-copy.is-copied,

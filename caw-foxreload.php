@@ -1686,7 +1686,7 @@ function caw_fox_billing_html( $item ) {
 	$copy = function ( $text, $label ) {
 		return '<button type="button" class="caw-fox-bill-copy" data-copy-text="' . esc_attr( $text ) . '" aria-label="' . esc_attr( $label ) . '"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button>';
 	};
-	$html = '<details class="caw-fox-ledger caw-fox-bill" open><summary>' . esc_html__( 'Billing address', 'mayosis' ) . '</summary><div class="caw-fox-bill-body">'
+	$html = '<details class="caw-fox-bill"><summary>' . esc_html__( 'Billing address', 'mayosis' ) . '</summary><div class="caw-fox-bill-body">'
 		. '<p class="caw-fox-bill-note">' . esc_html( $note ) . '</p><dl>';
 	foreach ( $labels as $k => $l ) {
 		/* translators: %s: field name, e.g. City */
@@ -1733,11 +1733,11 @@ function caw_fox_card_html( $item, $for_email ) {
 	if ( $topup ) {
 		$html .= '<p class="caw-fox-for">' . esc_html__( 'Your renewal has been added to this card.', 'mayosis' ) . '</p>';
 	}
-	$html .= caw_fox_billing_html( $item );
 	$html .= '<div class="caw-fox-balrow"><span>' . esc_html__( 'Balance', 'mayosis' ) . ' <strong class="caw-fox-bal">…</strong></span>'
 		. '<a class="caw-fox-recharge" href="' . esc_url( $renew ) . '" target="_blank" rel="noopener">' . esc_html__( 'Recharge your card', 'mayosis' ) . ' ↗</a></div>';
 	$html .= '<h4 class="caw-fox-label caw-fox-sec-code">' . esc_html__( 'Bank verification code', 'mayosis' ) . '</h4><div class="caw-fox-3ds-body"><p class="caw-fox-wait"><span class="caw-fox-spinner" aria-hidden="true"></span>' . esc_html__( 'Loading…', 'mayosis' ) . '</p></div>';
 	$html .= '<div class="caw-fox-codebar"><span class="caw-fox-codestate">' . esc_html__( 'Checking for new codes every 5 seconds', 'mayosis' ) . '</span><button type="button" class="caw-fox-resume">' . esc_html__( 'Check for a new code', 'mayosis' ) . '</button></div>';
+	$html .= caw_fox_billing_html( $item ); // closed until asked for; not a menu target
 	$html .= '<details class="caw-fox-ledger" open data-caw-collapse><summary>' . esc_html__( 'Balance and activity', 'mayosis' ) . '</summary><div class="caw-fox-ledger-body"><p class="caw-fox-wait">' . esc_html__( 'Loading…', 'mayosis' ) . '</p></div></details>';
 	return $html . '</div>';
 }
