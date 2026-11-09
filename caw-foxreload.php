@@ -1719,14 +1719,15 @@ function caw_fox_card_html( $item, $for_email ) {
 		. '<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>'
 		. '<span>' . esc_html__( 'Show details', 'mayosis' ) . '</span></button>'
 		. ( caw_fox_is_mock() ? '<span class="caw-fox-vcard-test">TEST</span>' : '' )
-		. '<span class="caw-fox-vcard-brand">VISA</span></div>'
+		. '<img class="caw-fox-vcard-logo" src="' . esc_url( get_stylesheet_directory_uri() . '/images/caw-card-logo.png' ) . '" alt="Crypto Awaz" width="350" height="100"></div>'
 		. '<div class="caw-fox-vcard-num"><span data-f="pan">' . esc_html( $mask ) . '</span>' . $copy( 'pan', __( 'Copy card number', 'mayosis' ) ) . '</div>'
 		. '<div class="caw-fox-vcard-meta">'
 		. '<div><small>' . esc_html__( 'Expires', 'mayosis' ) . '</small><span><span data-f="exp">••/••</span>' . $copy( 'exp', __( 'Copy expiry', 'mayosis' ) ) . '</span></div>'
 		. '<div><small>CVV</small><span><span data-f="cvv">•••</span>' . $copy( 'cvv', __( 'Copy CVV', 'mayosis' ) ) . '</span></div></div>'
-		. '<div class="caw-fox-vcard-name"><span data-f="name">' . esc_html( (string) caw_fox_meta( $item->id, '_caw_fox_card_name' ) ) . '</span>' . $copy( 'name', __( 'Copy name on card', 'mayosis' ) ) . '</div>'
+		. '<div class="caw-fox-vcard-name"><span data-f="name">' . esc_html( (string) caw_fox_meta( $item->id, '_caw_fox_card_name' ) ) . '</span>' . $copy( 'name', __( 'Copy name on card', 'mayosis' ) ) . '<span class="caw-fox-vcard-brand">VISA</span></div>'
 		. '</div>';
-	$html .= '<div class="caw-fox-pass" hidden><span>' . esc_html__( 'Bank password (if asked)', 'mayosis' ) . '</span><code data-f="pass"></code>' . $copy( 'pass', __( 'Copy bank password', 'mayosis' ) ) . '</div>';
+	$html .= '<p class="caw-fox-passnote">' . esc_html__( 'To see your bank password (3DS password), press "Show details" on the card.', 'mayosis' ) . '</p>';
+	$html .= '<div class="caw-fox-pass" hidden><span>' . esc_html__( 'Bank password / 3DS password (if asked)', 'mayosis' ) . '</span><code data-f="pass"></code>' . $copy( 'pass', __( 'Copy bank password', 'mayosis' ) ) . '</div>';
 	$html .= '<p class="caw-fox-card-msg" role="alert" hidden></p>';
 	$html .= '<p class="caw-fox-hint">' . esc_html__( 'Details hide again after 60 seconds.', 'mayosis' ) . '</p>';
 	if ( $topup ) {

@@ -2573,7 +2573,8 @@ body.sp-night-mode-on .caw-rcpt-nav a.is-active { color: #fff !important; }
     margin: 4px 0 12px;
     padding: 12px 14px 14px 20px;
     border-radius: 14px;
-    background: linear-gradient(135deg, #1e73be 0%, #0d3a66 100%);
+    /* Faint Crypto Awaz mark as a watermark, so a saved screenshot of the card keeps the branding */
+    background: url(images/caw-card-mark.png) no-repeat right -26px bottom -34px / 180px auto, linear-gradient(135deg, #1e73be 0%, #0d3a66 100%);
     color: #fff;
     box-shadow: 0 6px 18px rgba(13, 58, 102, .25);
 }
@@ -2581,6 +2582,7 @@ body.sp-night-mode-on .caw-rcpt-nav a.is-active { color: #fff !important; }
 .caw-fox-vcard-face * { color: #fff !important; }
 .caw-fox-vcard-top { display: flex; align-items: center; gap: 8px; }
 .caw-fox-vcard-brand { margin-left: auto; font-size: 20px; font-weight: 800; font-style: italic; letter-spacing: .04em; }
+.caw-fox-vcard-logo { display: block; flex: 0 1 auto; width: 120px; min-width: 0; height: auto; margin-left: auto; }
 .caw-fox-vcard-test { padding: 2px 8px; border-radius: 6px; background: #e8a33d; font-size: 12px; font-weight: 700; }
 .caw-fox-reveal {
     display: inline-flex;
@@ -2595,6 +2597,7 @@ body.sp-night-mode-on .caw-rcpt-nav a.is-active { color: #fff !important; }
     font-weight: 600;
     cursor: pointer;
 }
+.caw-fox-reveal { white-space: nowrap; }
 .caw-fox-reveal:disabled { opacity: .6; cursor: progress; }
 .caw-fox-vcard-num,
 .caw-fox-vcard-name,
@@ -2603,7 +2606,8 @@ body.sp-night-mode-on .caw-rcpt-nav a.is-active { color: #fff !important; }
 .caw-fox-vcard-meta { display: flex; gap: 24px; }
 .caw-fox-vcard-meta small { display: block; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; opacity: .85; }
 .caw-fox-vcard-meta [data-f] { font-family: Consolas, Menlo, monospace; font-size: 16px; }
-.caw-fox-vcard-name [data-f] { font-size: 13px; letter-spacing: .1em; text-transform: uppercase; }
+.caw-fox-vcard-name [data-f] { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; letter-spacing: .1em; text-transform: uppercase; }
+.caw-fox-vcard-name .caw-fox-vcard-brand { padding-left: 8px; }
 .caw-fox-ic {
     display: inline-flex;
     align-items: center;
@@ -2639,6 +2643,8 @@ body.sp-night-mode-on .caw-rcpt-nav a.is-active { color: #fff !important; }
 .caw-fox-pass code { margin-left: auto; padding: 0; background: none; border: 0; font-size: 16px; font-weight: 700; }
 .caw-fox-pass .caw-fox-ic { color: #1e73be; }
 body.sp-night-mode-on .caw-fox-pass .caw-fox-ic { color: #5aa6ea !important; }
+.caw-fox-passnote { max-width: 380px; margin: 0 0 8px; font-size: 13px; line-height: 1.5; color: var(--caw-fox-muted); }
+.caw-fox-vcard.is-open .caw-fox-passnote { display: none; }
 .caw-fox-hint { display: none; margin: 0 0 8px; font-size: 12px; color: var(--caw-fox-muted); }
 .caw-fox-vcard.is-open .caw-fox-hint { display: block; }
 .caw-fox-card-msg { max-width: 380px; box-sizing: border-box; margin: 0 0 10px; padding: 10px 12px; border-radius: 10px; background: rgba(192, 57, 43, .12); font-size: 14px; }
@@ -2721,6 +2727,9 @@ body.sp-night-mode-on .caw-fox-bill-all.is-failed,
 body.sp-night-mode-on .caw-fox-bill-all.is-failed * { color: #fff !important; }
 @media (max-width: 380px) {
     .caw-fox-vcard-face { padding-left: 14px; padding-right: 10px; }
+    .caw-fox-vcard-logo { width: 92px; }
+    .caw-fox-reveal { padding: 0 10px; }
+    .caw-fox-vcard-test { padding: 2px 5px; }
     .caw-fox-vcard-meta { gap: 12px; }
     .caw-fox-vcard-num [data-f] { font-size: 15px; letter-spacing: .03em; }
 }
