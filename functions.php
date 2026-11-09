@@ -288,6 +288,59 @@ function caw_cart_preview_names( $data ) {
 	return $data;
 }
 add_filter( 'edd_cart_preview_data', 'caw_cart_preview_names', 99 );
+
+/**
+ * Cart preview "recommended" items (EDD Pro): drop the ones the buyer can't add.
+ * EDD only checks can_purchase(), and its Add button posts the download with no price_id, so a variable
+ * product goes in at its default option. If that is sold out, EDD Purchase Limit wp_die()s inside the
+ * REST call → HTTP 500 and a dead button. Mirrors edd_pl_override_add_to_cart(), plus Foxreload stock.
+ * Runs after EDD's add_recommendations (priority 10).
+ */
+function caw_recommendation_sold_out( $download_id ) {
+	$variable = edd_has_variable_prices( $download_id );
+	$price_id = $variable ? (int) edd_get_default_variable_price( $download_id ) : 0;
+
+	if ( function_exists( 'caw_fox_map' ) && caw_fox_map( $download_id ) && ! caw_fox_available( $download_id, $price_id ) ) {
+		return true;
+	}
+	if ( ! function_exists( 'edd_pl_is_item_sold_out' ) ) {
+		return false;
+	}
+	if ( $variable ) {
+		$prices = apply_filters( 'edd_purchase_variable_prices', edd_get_variable_prices( $download_id ), $download_id );
+		return ! empty( $prices[ $price_id ]['purchase_limit'] ) && edd_pl_is_item_sold_out( $download_id, $price_id );
+	}
+	$max = (int) edd_pl_get_file_purchase_limit( $download_id );
+	if ( ! $max ) {
+		return false;
+	}
+	$scope = edd_get_option( 'edd_purchase_limit_scope' ) ? edd_get_option( 'edd_purchase_limit_scope' ) : 'site-wide';
+	if ( 'site-wide' === $scope ) {
+		$bought = (int) edd_pl_get_download_purchase_count( $download_id );
+	} elseif ( is_user_logged_in() ) {
+		$bought = (int) edd_pl_get_user_purchase_count( get_current_user_id(), $download_id );
+	} else {
+		$bought = 0;
+	}
+	if ( $bought >= $max ) {
+		return true;
+	}
+	return edd_item_in_cart( $download_id ) && (int) edd_get_cart_item_quantity( $download_id ) + 1 >= $max;
+}
+
+function caw_cart_preview_buyable_recommendations( $data ) {
+	if ( empty( $data['recommendations'] ) || ! is_array( $data['recommendations'] ) ) {
+		return $data;
+	}
+	$data['recommendations'] = array_values( array_filter( $data['recommendations'], function ( $rec ) {
+		return ! empty( $rec['product_id'] ) && ! caw_recommendation_sold_out( (int) $rec['product_id'] );
+	} ) );
+	if ( ! $data['recommendations'] ) {
+		unset( $data['recommendations'] ); // same shape as "no recommendations" from EDD
+	}
+	return $data;
+}
+add_filter( 'edd_cart_preview_data', 'caw_cart_preview_buyable_recommendations', 20 );
 /**
  * Keep exactly one auth popup, and move it somewhere it can actually be seen.
  *
