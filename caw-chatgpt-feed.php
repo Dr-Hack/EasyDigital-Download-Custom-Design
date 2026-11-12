@@ -22,6 +22,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 define( 'CAW_FEED_PATH', 'chatgpt-feed.tsv' );
+// target_countries is required on every row and must be from the list ChatGPT allows for this feed
+// (shown on its validation screen; 2026-11-13: AE, GB, US, IE, IT, CH, AQ, DZ; Antarctica left out).
+define( 'CAW_FEED_COUNTRIES', array( 'US', 'GB', 'AE', 'IE', 'IT', 'CH', 'DZ' ) );
 
 function caw_feed_file() {
 	$up = wp_upload_dir( null, false );
@@ -103,7 +106,7 @@ function caw_feed_prices( $id, $pid, $rows ) {
 }
 
 function caw_feed_columns() {
-	return array( 'item_id', 'group_id', 'listing_has_variations', 'variant_dict', 'title', 'description', 'url', 'brand', 'seller_name', 'seller_url', 'image_url', 'availability', 'price', 'sale_price', 'condition', 'product_category', 'is_eligible_search', 'seller_privacy_policy' );
+	return array( 'item_id', 'group_id', 'listing_has_variations', 'variant_dict', 'title', 'description', 'url', 'brand', 'seller_name', 'seller_url', 'image_url', 'availability', 'price', 'sale_price', 'condition', 'product_category', 'is_eligible_search', 'seller_privacy_policy', 'target_countries' );
 }
 
 /** Every feed row, as column => value. */
@@ -137,6 +140,7 @@ function caw_feed_rows() {
 			'product_category'      => caw_feed_category( $id ),
 			'is_eligible_search'    => 'true',
 			'seller_privacy_policy' => $privacy,
+			'target_countries'      => wp_json_encode( CAW_FEED_COUNTRIES ),
 		);
 		$name  = caw_feed_text( get_the_title( $id ) );
 		$about = caw_feed_about( $post );
@@ -315,7 +319,8 @@ add_action( 'parse_request', function () {
 	}
 	$gz   = $want !== $path;
 	$file = caw_feed_file() . ( $gz ? '.gz' : '' );
-	if ( ! is_readable( $file ) || time() - filemtime( $file ) > 6 * HOUR_IN_SECONDS ) {
+	// Also rebuilt when this file is newer than the feed, so an upload shows at once.
+	if ( ! is_readable( $file ) || time() - filemtime( $file ) > 6 * HOUR_IN_SECONDS || filemtime( __FILE__ ) > filemtime( $file ) ) {
 		caw_feed_build();
 		clearstatcache();
 	}
