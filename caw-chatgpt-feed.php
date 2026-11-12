@@ -261,7 +261,10 @@ function caw_feed_tsv() {
 	foreach ( caw_feed_rows() as $row ) {
 		$cells = array();
 		foreach ( $cols as $col ) {
-			$cells[] = isset( $row[ $col ] ) ? str_replace( array( "\t", "\r", "\n" ), ' ', (string) $row[ $col ] ) : '';
+			$v = isset( $row[ $col ] ) ? str_replace( array( "\t", "\r", "\n" ), ' ', (string) $row[ $col ] ) : '';
+			// ChatGPT reads TSV with CSV quoting: a cell holding a quote (the JSON ones, "…" in text) is
+			// enclosed in quotes with inner quotes doubled.
+			$cells[] = false !== strpos( $v, '"' ) ? '"' . str_replace( '"', '""', $v ) . '"' : $v;
 		}
 		$lines[] = implode( "\t", $cells );
 	}
