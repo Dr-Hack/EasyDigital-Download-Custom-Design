@@ -30,6 +30,7 @@ require_once get_stylesheet_directory() . '/caw-foxreload.php';
 require_once get_stylesheet_directory() . '/caw-aurpay-return.php';
 require_once get_stylesheet_directory() . '/esim/caw-qr.php';
 require_once get_stylesheet_directory() . '/esim/caw-esim.php';
+require_once get_stylesheet_directory() . '/caw-chatgpt-feed.php';
 
 /* =============================================================================
    SOCIAL LOGIN — Nextend buttons in the auth popup and on the account pages

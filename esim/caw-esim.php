@@ -747,7 +747,8 @@ add_action( 'caw_esim_range', function () {
 		}
 		$costs = wp_list_pluck( $plans, 'cost' );
 		if ( $costs ) {
-			$range[ $slug ] = array( min( $costs ), max( $costs ), count( $costs ) );
+			// [ low cost, high cost, plan count, cheapest plan's label (ChatGPT feed title) ]
+			$range[ $slug ] = array( min( $costs ), max( $costs ), count( $costs ), $plans[ array_search( min( $costs ), $costs ) ]['label'] );
 		} else {
 			unset( $range[ $slug ] );
 		}
