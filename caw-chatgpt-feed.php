@@ -5,7 +5,7 @@
  *
  * The owner pastes the .gz URL into ChatGPT ("Add products to ChatGPT" → Use a hosted URL). Spec:
  * developers.openai.com/commerce/specs/file-upload/overview + /products. Full snapshot on every
- * build, stable filename, UTF-8, header row, rebuilt hourly (spec: at least daily).
+ * build, stable filename, UTF-8, header row, rebuilt every 4 hours (spec: at least daily).
  *
  * - One row per price option (item_id "<download>-<price id>", group_id "<download>"); a product
  *   without options is one row "<download>-0". Renewal options are left out: they top up a card
@@ -13,8 +13,8 @@
  * - The eSIM store is one row per destination with its cheapest plan, from the hourly
  *   caw_esim_range run (no supplier call here). Plans above CAW_ESIM_MAX_COST are never in it.
  * - Titles and descriptions say how many more options the product page has, so people visit it.
- * - Built hourly by cron into uploads/caw-feed/; the URL serves that file (rebuilt on the spot if
- *   it is missing or over 3 hours old). Never contains supplier names, costs, keys or files.
+ * - Built every 4 hours by cron into uploads/caw-feed/; the URL serves that file (rebuilt on the spot if
+ *   it is missing or over 6 hours old). Never contains supplier names, costs, keys or files.
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -293,9 +293,14 @@ function caw_feed_build() {
 	return true;
 }
 
+add_filter( 'cron_schedules', function ( $s ) {
+	$s['caw_4h'] = array( 'interval' => 4 * HOUR_IN_SECONDS, 'display' => 'Every 4 hours' );
+	return $s;
+} );
 add_action( 'init', function () {
-	if ( ! wp_next_scheduled( 'caw_feed_build' ) ) {
-		wp_schedule_event( time() + 120, 'hourly', 'caw_feed_build' );
+	if ( 'caw_4h' !== wp_get_schedule( 'caw_feed_build' ) ) {
+		wp_clear_scheduled_hook( 'caw_feed_build' ); // replaces the first, hourly version
+		wp_schedule_event( time() + 120, 'caw_4h', 'caw_feed_build' );
 	}
 } );
 add_action( 'caw_feed_build', 'caw_feed_build' );
@@ -310,7 +315,7 @@ add_action( 'parse_request', function () {
 	}
 	$gz   = $want !== $path;
 	$file = caw_feed_file() . ( $gz ? '.gz' : '' );
-	if ( ! is_readable( $file ) || time() - filemtime( $file ) > 3 * HOUR_IN_SECONDS ) {
+	if ( ! is_readable( $file ) || time() - filemtime( $file ) > 6 * HOUR_IN_SECONDS ) {
 		caw_feed_build();
 		clearstatcache();
 	}
