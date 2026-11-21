@@ -1134,7 +1134,8 @@ function caw_fox_items_html( $order, $for_email = false ) {
 		} elseif ( 'manual' === $status ) {
 			$html .= '<p>' . esc_html__( 'Delivered by our team — please check your email.', 'mayosis' ) . '</p>';
 		} elseif ( 'failed' === $status ) {
-			$html .= '<p>' . esc_html__( 'We could not deliver this automatically. Our team has been notified and will send it to you or refund you shortly.', 'mayosis' ) . '</p>';
+			// Customer-facing: no talk of automation or failure. The admin alert + order note carry the reason.
+			$html .= '<p>' . esc_html__( 'Your order is being processed by our team. We will email you as soon as it is ready.', 'mayosis' ) . '</p>';
 		} else {
 			$pending = true;
 			$wait    = caw_fox_is_direct( $item->product_id, $item->price_id )
