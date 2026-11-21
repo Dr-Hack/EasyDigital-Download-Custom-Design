@@ -2650,6 +2650,8 @@ body.sp-night-mode-on .caw-fox-passnote { color: var(--caw-fox-muted) !important
 .caw-fox-vcard.is-open .caw-fox-hint { display: block; }
 .caw-fox-card-msg { max-width: 380px; box-sizing: border-box; margin: 0 0 10px; padding: 10px 12px; border-radius: 10px; background: rgba(192, 57, 43, .12); font-size: 14px; }
 .caw-fox-card-msg[hidden] { display: none; }
+.caw-fox-locked { max-width: 380px; box-sizing: border-box; margin: 4px 0 12px; padding: 10px 12px; border-radius: 10px; background: rgba(192, 57, 43, .12); font-size: 14px; line-height: 1.5; }
+.caw-fox-locked a { font-weight: 600; color: #1e73be; text-decoration: underline; white-space: nowrap; }
 .caw-fox-retry { margin-left: 6px; padding: 6px 12px; border: 1px solid currentColor; border-radius: 8px; background: transparent; font-weight: 600; cursor: pointer; }
 .caw-fox-balrow { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 16px; max-width: 380px; margin: 0 0 6px; font-size: 15px; }
 .caw-fox-balrow strong { font-size: 18px; }

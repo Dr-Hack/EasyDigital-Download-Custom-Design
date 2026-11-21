@@ -609,6 +609,7 @@ function caw_fox_field_is_numeric( $field ) {
 add_action( 'edd_purchase_form_user_info_fields', function () {
 	$rows     = '';
 	$game_ids = false;
+	$card_ok  = false; // a card select was offered (not just "log in" / "card locked" notes)
 	$hinted   = array();
 	foreach ( caw_fox_cart_lines() as $key => $line ) {
 		$req = ! empty( $line['cache']['req'] ) ? $line['cache']['req'] : array();
@@ -631,6 +632,13 @@ add_action( 'edd_purchase_form_user_info_fields', function () {
 					$rows .= '<p class="caw-fox-field caw-fox-nocard">' . esc_html( sprintf( __( '%s tops up a card you bought from us. Please log in with the account you used for that order.', 'mayosis' ), $title ) ) . '</p>';
 					continue;
 				}
+				if ( ! array_filter( wp_list_pluck( $opts, 'disabled' ), function ( $d ) {
+					return ! $d;
+				} ) ) {
+					$rows .= '<p class="caw-fox-field caw-fox-nocard">' . esc_html( sprintf( __( 'Your card can\'t be topped up any more because the bank has locked it. Please remove %s from your cart and buy a new card instead.', 'mayosis' ), $title ) ) . '</p>';
+					continue;
+				}
+				$card_ok = true;
 			} else {
 				$game_ids = true;
 			}
@@ -641,7 +649,7 @@ add_action( 'edd_purchase_form_user_info_fields', function () {
 				foreach ( $opts as $o ) {
 					$ov    = is_array( $o ) ? ( isset( $o['value'] ) ? $o['value'] : reset( $o ) ) : $o;
 					$ol    = is_array( $o ) && isset( $o['label'] ) ? $o['label'] : $ov;
-					$rows .= '<option value="' . esc_attr( $ov ) . '"' . selected( $value, $ov, false ) . '>' . esc_html( $ol ) . '</option>';
+					$rows .= '<option value="' . esc_attr( $ov ) . '"' . ( ! empty( $o['disabled'] ) ? ' disabled' : selected( $value, $ov, false ) ) . '>' . esc_html( $ol ) . '</option>';
 				}
 				$rows .= '</select>';
 			} else {
@@ -656,9 +664,11 @@ add_action( 'edd_purchase_form_user_info_fields', function () {
 		return;
 	}
 	echo '<div class="caw-fox-fields">';
-	echo '<p class="caw-fox-fields-intro">' . ( $game_ids
-		? esc_html__( 'Your order is delivered to the account below, so please double-check it.', 'mayosis' )
-		: esc_html__( 'Choose the card to top up. The money is added to it a minute or two after your payment confirms.', 'mayosis' ) ) . '</p>';
+	if ( $game_ids || $card_ok ) {
+		echo '<p class="caw-fox-fields-intro">' . ( $game_ids
+			? esc_html__( 'Your order is delivered to the account below, so please double-check it.', 'mayosis' )
+			: esc_html__( 'Choose the card to top up. The money is added to it a minute or two after your payment confirms.', 'mayosis' ) ) . '</p>';
+	}
 	echo $rows; // phpcs:ignore WordPress.Security.EscapeOutput -- escaped above
 	echo '</div>';
 } );
@@ -684,8 +694,16 @@ add_action( 'edd_checkout_error_checks', function ( $valid_data, $post ) {
 		foreach ( (array) $line['cache']['req'] as $field ) {
 			$v = isset( $notes[ $key ][ $field ] ) ? caw_fox_clean_note( $field, wp_unslash( $notes[ $key ][ $field ] ) ) : '';
 			if ( 'card_id' === $field ) {
-				if ( ! isset( caw_fox_user_cards( get_current_user_id(), $line['item']['id'] )[ $v ] ) ) {
+				$cards = caw_fox_user_cards( get_current_user_id(), $line['item']['id'] );
+				if ( ! isset( $cards[ $v ] ) ) {
 					edd_set_error( 'caw_fox_note_' . $key . '_card', sprintf( __( 'Please choose which of your cards to top up with %s. Log in first if you are not logged in.', 'mayosis' ), $title ) );
+				} else {
+					// Ask the issuer now, not the 10-min cache: the card may have been locked since the page loaded.
+					$state = caw_fox_card_state( $v, true );
+					if ( caw_fox_card_locked( $state ) ) {
+						/* translators: 1: last 4 digits, 2: why it is locked, 3: product */
+						edd_set_error( 'caw_fox_note_' . $key . '_card', sprintf( __( 'Your card •••• %1$s is %2$s, so it can\'t be topped up. Please remove %3$s from your cart and buy a new card instead.', 'mayosis' ), $cards[ $v ]['last4'] ?: '????', caw_fox_card_lock_text( $state ), $title ) );
+					}
 				}
 				continue;
 			}
@@ -1634,17 +1652,67 @@ function caw_fox_user_cards( $user_id, $download_id = 0 ) {
 	return $cards;
 }
 
-/** Checkout <select> options for a renewal. */
+/**
+ * A card's issuer status: [ 'status' => issuing|active|frozen|suspended|closed|expired|failed, 'reason' => blockedReason ],
+ * or array() when Foxreload can't be asked right now. Only an active card can be topped up: Foxreload
+ * refunds a top-up to a locked card (order 9441, card locked for an unpaid fee). Cached 10 min; $fresh re-reads.
+ */
+function caw_fox_card_state( $card, $fresh = false ) {
+	if ( ! caw_fox_is_card_id( $card ) ) {
+		return array();
+	}
+	$key   = 'caw_fox_cst_' . md5( $card );
+	$state = $fresh ? false : get_transient( $key );
+	if ( false === $state ) {
+		$r = caw_fox_api( 'GET', '/api/banking-cards/' . $card );
+		if ( $r['error'] || empty( $r['data']['status'] ) ) {
+			return array(); // unknown: don't block on a supplier hiccup
+		}
+		$state = array(
+			'status' => sanitize_key( (string) $r['data']['status'] ),
+			'reason' => sanitize_key( (string) ( isset( $r['data']['blockedReason'] ) ? $r['data']['blockedReason'] : '' ) ),
+		);
+		set_transient( $key, $state, 10 * MINUTE_IN_SECONDS );
+	}
+	return $state;
+}
+
+/** True only when the issuer is known to refuse top-ups for this card. Unknown status = allowed. */
+function caw_fox_card_locked( $state ) {
+	return ! empty( $state['status'] ) && 'active' !== $state['status'];
+}
+
+/** Short customer wording for a locked card. */
+function caw_fox_card_lock_text( $state ) {
+	if ( 'expired' === $state['status'] ) {
+		return __( 'expired', 'mayosis' );
+	}
+	if ( 'frozen' === $state['status'] ) {
+		return __( 'frozen', 'mayosis' );
+	}
+	return 'fee_unpaid' === $state['reason'] ? __( 'blocked by the bank (a card fee could not be paid)', 'mayosis' ) : __( 'blocked by the bank', 'mayosis' );
+}
+
+/** Checkout <select> options for a renewal. Locked cards are listed but can't be picked. */
 function caw_fox_card_options( $user_id, $download_id ) {
 	$opts = array();
 	foreach ( caw_fox_user_cards( $user_id, $download_id ) as $id => $c ) {
+		$state = caw_fox_card_state( $id );
+		/* translators: 1: last 4 digits, 2: purchase date */
+		$label = sprintf( __( 'Visa •••• %1$s — bought %2$s', 'mayosis' ), $c['last4'] ?: '????', $c['date'] ? wp_date( 'j M Y', strtotime( $c['date'] . ' UTC' ) ) : '' );
+		$lock  = caw_fox_card_locked( $state );
 		$opts[] = array(
-			'value' => $id,
-			/* translators: 1: last 4 digits, 2: purchase date */
-			'label' => sprintf( __( 'Visa •••• %1$s — bought %2$s', 'mayosis' ), $c['last4'] ?: '????', $c['date'] ? wp_date( 'j M Y', strtotime( $c['date'] . ' UTC' ) ) : '' ),
+			'value'    => $id,
+			/* translators: 1: card label, 2: why it is locked */
+			'label'    => $lock ? sprintf( __( '%1$s — %2$s, can\'t be topped up', 'mayosis' ), $label, caw_fox_card_lock_text( $state ) ) : $label,
+			'disabled' => $lock,
 		);
 	}
-	return $opts;
+	// Usable cards first (newest first), so the select doesn't open on a disabled one.
+	$open = array_filter( $opts, function ( $o ) {
+		return ! $o['disabled'];
+	} );
+	return array_values( array_merge( $open, array_diff_key( $opts, $open ) ) );
 }
 
 /**
@@ -1733,8 +1801,15 @@ function caw_fox_card_html( $item, $for_email ) {
 	if ( $topup ) {
 		$html .= '<p class="caw-fox-for">' . esc_html__( 'Your renewal has been added to this card.', 'mayosis' ) . '</p>';
 	}
+	$state = caw_fox_card_state( caw_fox_item_card( $item->id ) );
+	$lock  = caw_fox_card_locked( $state );
 	$html .= '<div class="caw-fox-balrow"><span>' . esc_html__( 'Balance', 'mayosis' ) . ' <strong class="caw-fox-bal">…</strong></span>'
-		. '<a class="caw-fox-recharge" href="' . esc_url( $renew ) . '" target="_blank" rel="noopener">' . esc_html__( 'Recharge your card', 'mayosis' ) . ' ↗</a></div>';
+		. ( $lock ? '' : '<a class="caw-fox-recharge" href="' . esc_url( $renew ) . '" target="_blank" rel="noopener">' . esc_html__( 'Recharge your card', 'mayosis' ) . ' ↗</a>' ) . '</div>';
+	if ( $lock ) {
+		/* translators: %s: why it is locked */
+		$html .= '<p class="caw-fox-locked">' . esc_html( sprintf( __( 'This card is %s and can\'t be recharged. To keep paying, please buy a new card.', 'mayosis' ), caw_fox_card_lock_text( $state ) ) )
+			. ' <a href="' . esc_url( get_permalink( $item->product_id ) ) . '" target="_blank" rel="noopener">' . esc_html__( 'Buy a new card', 'mayosis' ) . ' ↗</a></p>';
+	}
 	$html .= '<h4 class="caw-fox-label caw-fox-sec-code">' . esc_html__( 'Bank verification code', 'mayosis' ) . '</h4><div class="caw-fox-3ds-body"><p class="caw-fox-wait"><span class="caw-fox-spinner" aria-hidden="true"></span>' . esc_html__( 'Loading…', 'mayosis' ) . '</p></div>';
 	$html .= '<div class="caw-fox-codebar"><span class="caw-fox-codestate">' . esc_html__( 'Checking for new codes every 5 seconds', 'mayosis' ) . '</span><button type="button" class="caw-fox-resume">' . esc_html__( 'Check for a new code', 'mayosis' ) . '</button></div>';
 	$html .= caw_fox_billing_html( $item ); // closed until asked for; not a menu target
