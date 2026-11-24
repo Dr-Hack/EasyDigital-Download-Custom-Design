@@ -777,6 +777,10 @@ add_filter( 'edd_generate_download_structured_data', function ( $data, $download
 			'offerCount'    => array_sum( array_column( $range, 2 ) ),
 			'availability'  => 'https://schema.org/InStock',
 			'url'           => get_permalink( $download->ID ),
+			'seller'        => array( // same as EDD's own offers on every other product
+				'@type' => 'Organization',
+				'name'  => get_bloginfo( 'name' ),
+			),
 		);
 	}
 	return $data;
