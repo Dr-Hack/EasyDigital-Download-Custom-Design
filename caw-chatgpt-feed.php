@@ -111,7 +111,6 @@ function caw_feed_columns() {
 
 /** Every feed row, as column => value. */
 function caw_feed_rows() {
-	$brand   = html_entity_decode( get_bloginfo( 'name' ), ENT_QUOTES, 'UTF-8' ); // same as the product JSON-LD brand
 	$home    = home_url( '/' );
 	$privacy = get_privacy_policy_url();
 	$out     = array();
@@ -132,7 +131,7 @@ function caw_feed_rows() {
 			continue; // image_url is required
 		}
 		$base = array(
-			'brand'                 => $brand,
+			'brand'                 => caw_product_brand( $id ), // same as the product JSON-LD brand
 			'seller_name'           => 'Crypto Awaz',
 			'seller_url'            => $home,
 			'image_url'             => $image,

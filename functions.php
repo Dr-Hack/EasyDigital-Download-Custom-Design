@@ -2009,12 +2009,82 @@ function caw_trustpilot_afs_send_trigger( $order_id, $order, $customer ) {
    which the owner asked for (Grok / Web Guru, 2026-11-05). Every product.
    ============================================================================= */
 
-add_filter( 'edd_generate_download_structured_data', function ( $data ) {
+add_filter( 'edd_generate_download_structured_data', function ( $data, $download = null ) {
 	if ( isset( $data['brand'] ) && is_array( $data['brand'] ) ) {
 		$data['brand']['@type'] = 'Brand';
+		if ( $download && ! empty( $download->ID ) ) {
+			$data['brand']['name'] = caw_product_brand( $download->ID );
+		}
+	}
+	// EDD uses the 150×150 thumbnail; Google wants a large product image.
+	if ( $download && ! empty( $download->ID ) && has_post_thumbnail( $download->ID ) ) {
+		$full = wp_get_attachment_image_url( get_post_thumbnail_id( $download->ID ), 'full' );
+		if ( $full ) {
+			$data['image'] = esc_url( $full );
+		}
 	}
 	return $data;
-}, 20 );
+}, 20, 2 );
+
+/* =============================================================================
+   PRODUCT BRAND (schema + ChatGPT feed)
+
+   Google: the brand is whoever MAKES the product. Our store name is only the
+   brand for our own products; resold ones (Telegram, Steam, Discord…) must
+   carry their maker's brand. Crypto Awaz stays the seller on every offer.
+   Per-product meta `_caw_brand`; empty = site name (the old behaviour).
+   ============================================================================= */
+
+function caw_product_brand( $download_id ) {
+	$b = trim( (string) get_post_meta( $download_id, '_caw_brand', true ) );
+	return '' !== $b ? $b : html_entity_decode( get_bloginfo( 'name' ), ENT_QUOTES, 'UTF-8' );
+}
+
+add_action( 'add_meta_boxes_download', function () {
+	add_meta_box( 'caw_brand_box', 'Brand (SEO)', function ( $post ) {
+		wp_nonce_field( 'caw_brand_save', 'caw_brand_nonce' );
+		$site = html_entity_decode( get_bloginfo( 'name' ), ENT_QUOTES, 'UTF-8' );
+		echo '<input type="text" name="caw_brand" value="' . esc_attr( (string) get_post_meta( $post->ID, '_caw_brand', true ) ) . '" placeholder="' . esc_attr( $site ) . '" style="width:100%">';
+		echo '<p class="description" style="margin-top:8px">Who <strong>makes</strong> this product, e.g. <code>Telegram</code>, <code>Steam</code>, <code>Discord</code>, <code>PUBG</code>. Use the official spelling.</p>';
+		echo '<p class="description">Google says the brand must be the maker, not the shop: our name is only right for products we make ourselves. Resold products showing "' . esc_html( $site ) . '" as the brand can lose rich results in Google and ChatGPT shopping.</p>';
+		echo '<p class="description">Leave blank only for our own products (it then shows "' . esc_html( $site ) . '"). We stay the <em>seller</em> either way.</p>';
+	}, 'download', 'side', 'default' );
+} );
+
+add_action( 'save_post_download', function ( $post_id ) {
+	if ( ! isset( $_POST['caw_brand_nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['caw_brand_nonce'] ) ), 'caw_brand_save' ) || ! current_user_can( 'edit_post', $post_id ) || wp_is_post_revision( $post_id ) ) {
+		return;
+	}
+	$b = isset( $_POST['caw_brand'] ) ? trim( sanitize_text_field( wp_unslash( $_POST['caw_brand'] ) ) ) : '';
+	if ( '' !== $b ) {
+		update_post_meta( $post_id, '_caw_brand', mb_substr( $b, 0, 70 ) );
+	} else {
+		delete_post_meta( $post_id, '_caw_brand' );
+	}
+} );
+
+/* Let REST (Grok) read and write it as `caw_brand` on /wp/v2/edd-downloads (downloads lack
+   custom-fields support, so registered meta would not show up). Empty string clears it. */
+add_action( 'rest_api_init', function () {
+	register_rest_field( 'download', 'caw_brand', array(
+		'get_callback'    => function ( $obj ) {
+			return (string) get_post_meta( $obj['id'], '_caw_brand', true );
+		},
+		'update_callback' => function ( $value, $post ) {
+			if ( ! current_user_can( 'edit_post', $post->ID ) ) {
+				return new WP_Error( 'rest_forbidden', 'Cannot edit this product.', array( 'status' => 403 ) );
+			}
+			$b = trim( sanitize_text_field( (string) $value ) );
+			if ( '' !== $b ) {
+				update_post_meta( $post->ID, '_caw_brand', mb_substr( $b, 0, 70 ) );
+			} else {
+				delete_post_meta( $post->ID, '_caw_brand' );
+			}
+			return true;
+		},
+		'schema'          => array( 'type' => 'string', 'description' => 'Product maker for schema brand; empty = site name.', 'context' => array( 'view', 'edit' ) ),
+	) );
+} );
 
 /* =============================================================================
    SEO — KEEP TRANSACTIONAL AND PER-USER PAGES OUT OF SEARCH
